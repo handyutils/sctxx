@@ -3,7 +3,7 @@
 **Feature Branch**: `019-m6-pi-extension`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M6; docs/SPEC.md §1.2, §15.2
+**Input**: docs/SCTXX-ROADMAP.md M6; docs/SCTXX-SPEC.md §1.2, §15.2
 
 ## Scope seed
 

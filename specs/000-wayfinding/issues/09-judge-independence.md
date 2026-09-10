@@ -12,4 +12,4 @@ probe score is unavailable?
 
 Speak for yourself. Do not let the agent answer this ticket.
 
-Spec reference: `docs/SPEC.md` §10.3, §19 item 4. Unblocks: `specs/015-m5-probe-loop/`.
+Spec reference: `docs/SCTXX-SPEC.md` §10.3, §19 item 4. Unblocks: `specs/015-m5-probe-loop/`.

@@ -3,7 +3,7 @@
 **Feature Branch**: `021-m6-lat-md-export`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M6; docs/SPEC.md §1.2
+**Input**: docs/SCTXX-ROADMAP.md M6; docs/SCTXX-SPEC.md §1.2
 
 ## Scope seed
 

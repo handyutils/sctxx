@@ -3,7 +3,7 @@
 **Feature Branch**: `001-m0-repo-foundation`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M0; docs/SPEC.md §2.2–2.3, §4.1–4.3, §14.4, §15.1
+**Input**: docs/SCTXX-ROADMAP.md M0; docs/SCTXX-SPEC.md §2.2–2.3, §4.1–4.3, §14.4, §15.1
 
 ## Scope seed
 

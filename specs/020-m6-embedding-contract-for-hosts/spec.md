@@ -3,7 +3,7 @@
 **Feature Branch**: `020-m6-embedding-contract-for-hosts`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M6; docs/SPEC.md §4.1
+**Input**: docs/SCTXX-ROADMAP.md M6; docs/SCTXX-SPEC.md §4.1
 
 ## Scope seed
 

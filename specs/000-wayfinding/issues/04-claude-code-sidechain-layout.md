@@ -13,4 +13,4 @@ Work only from session files on the maintainer's own machine (redacted before be
 Anthropic documentation. Never consult leaked Claude Code source or its forks. Record agent versions,
 fixture paths, and observed behavior as verified facts; everything else is labeled hypothesis.
 
-Unblocks: `specs/003-m1-ir-and-claude-code-adapter/`. Spec reference: `docs/SPEC.md` §6.3, §19 item 1.
+Unblocks: `specs/003-m1-ir-and-claude-code-adapter/`. Spec reference: `docs/SCTXX-SPEC.md` §6.3, §19 item 1.

@@ -3,7 +3,7 @@
 **Feature Branch**: `012-m3-cache-and-resume`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M3; docs/SPEC.md §11
+**Input**: docs/SCTXX-ROADMAP.md M3; docs/SCTXX-SPEC.md §11
 
 ## Scope seed
 

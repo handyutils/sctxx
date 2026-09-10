@@ -3,7 +3,7 @@
 **Feature Branch**: `010-m3-llm-backends`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M3; docs/SPEC.md §9
+**Input**: docs/SCTXX-ROADMAP.md M3; docs/SCTXX-SPEC.md §9
 
 ## Scope seed
 

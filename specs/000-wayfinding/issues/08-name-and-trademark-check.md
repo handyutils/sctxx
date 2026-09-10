@@ -9,4 +9,4 @@ Is `sctxx` free of conflicts with existing trademarks and prominent projects, an
 `sctxx` on npm, the npm org for platform packages, and the GitHub repository still available? If all are
 clear, reserve them (human approval gate) and record what was reserved and when.
 
-Unblocks: `specs/001-m0-repo-foundation/`. Spec reference: `docs/SPEC.md` §14.3, §19 item 7.
+Unblocks: `specs/001-m0-repo-foundation/`. Spec reference: `docs/SCTXX-SPEC.md` §14.3, §19 item 7.

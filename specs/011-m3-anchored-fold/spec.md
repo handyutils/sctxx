@@ -3,7 +3,7 @@
 **Feature Branch**: `011-m3-anchored-fold`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M3; docs/SPEC.md §8
+**Input**: docs/SCTXX-ROADMAP.md M3; docs/SCTXX-SPEC.md §8
 
 ## Scope seed
 

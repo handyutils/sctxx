@@ -87,8 +87,8 @@ The operational detail is `docs/workmethodology/sctxx-hybrid-engineering-methodo
 ## Governance
 
 Precedence: this constitution → `docs/SCTXX-ROADMAP.md` invariants → the active block's accepted
-`spec.md` and `plan.md` → `docs/SPEC.md` architecture reference. A conflict between the active ledger and
-`docs/SPEC.md` is resolved by a decision, and both are updated in the same change.
+`spec.md` and `plan.md` → `docs/SCTXX-SPEC.md` architecture reference. A conflict between the active ledger and
+`docs/SCTXX-SPEC.md` is resolved by a decision, and both are updated in the same change.
 
 Amendments require an ADR in `docs/adr/` (context, alternatives, decision, evidence, consequences), an
 updated version line below, and a note in `specs/000-wayfinding/map.md` when destination or scope changes.

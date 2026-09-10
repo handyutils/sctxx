@@ -3,7 +3,7 @@
 **Feature Branch**: `009-m2-complete-ledgers-and-reconciliation`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M2; docs/SPEC.md §7, §10.1, §10.2
+**Input**: docs/SCTXX-ROADMAP.md M2; docs/SCTXX-SPEC.md §7, §10.1, §10.2
 
 ## Scope seed
 

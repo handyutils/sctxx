@@ -3,7 +3,7 @@
 **Feature Branch**: `022-m7-additional-adapters`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M7; docs/SPEC.md §6
+**Input**: docs/SCTXX-ROADMAP.md M7; docs/SCTXX-SPEC.md §6
 
 ## Scope seed
 

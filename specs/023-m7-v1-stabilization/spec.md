@@ -3,7 +3,7 @@
 **Feature Branch**: `023-m7-v1-stabilization`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M7; docs/SPEC.md §5, §12, §14.4
+**Input**: docs/SCTXX-ROADMAP.md M7; docs/SCTXX-SPEC.md §5, §12, §14.4
 
 ## Scope seed
 

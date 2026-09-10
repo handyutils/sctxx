@@ -3,7 +3,7 @@
 **Feature Branch**: `007-m2-pi-adapter`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M2; docs/SPEC.md §6.1, §6.4
+**Input**: docs/SCTXX-ROADMAP.md M2; docs/SCTXX-SPEC.md §6.1, §6.4
 
 ## Scope seed
 

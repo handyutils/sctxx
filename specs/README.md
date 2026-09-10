@@ -10,7 +10,7 @@ This tree is the working surface for three complementary methods:
 
 Governing policy: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md).
 Direction: [`docs/SCTXX-ROADMAP.md`](../docs/SCTXX-ROADMAP.md).
-Architecture reference: [`docs/SPEC.md`](../docs/SPEC.md).
+Architecture reference: [`docs/SCTXX-SPEC.md`](../docs/SCTXX-SPEC.md).
 Working method: [`docs/workmethodology/sctxx-hybrid-engineering-methodology.md`](../docs/workmethodology/sctxx-hybrid-engineering-methodology.md).
 
 ## Layout

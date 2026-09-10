@@ -3,7 +3,7 @@
 **Feature Branch**: `008-m2-session-discovery`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M2; docs/SPEC.md §3.2–3.5
+**Input**: docs/SCTXX-ROADMAP.md M2; docs/SCTXX-SPEC.md §3.2–3.5
 
 ## Scope seed
 

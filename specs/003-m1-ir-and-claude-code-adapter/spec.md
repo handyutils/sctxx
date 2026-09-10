@@ -3,7 +3,7 @@
 **Feature Branch**: `003-m1-ir-and-claude-code-adapter`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M1; docs/SPEC.md §5, §6.1, §6.3, §3.2
+**Input**: docs/SCTXX-ROADMAP.md M1; docs/SCTXX-SPEC.md §5, §6.1, §6.3, §3.2
 
 ## Scope seed
 

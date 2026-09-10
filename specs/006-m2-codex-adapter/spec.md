@@ -3,7 +3,7 @@
 **Feature Branch**: `006-m2-codex-adapter`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M2; docs/SPEC.md §6.1, §6.2, Appendix A
+**Input**: docs/SCTXX-ROADMAP.md M2; docs/SCTXX-SPEC.md §6.1, §6.2, Appendix A
 
 ## Scope seed
 

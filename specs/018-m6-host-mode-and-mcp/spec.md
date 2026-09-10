@@ -3,7 +3,7 @@
 **Feature Branch**: `018-m6-host-mode-and-mcp`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M6; docs/SPEC.md §9.5
+**Input**: docs/SCTXX-ROADMAP.md M6; docs/SCTXX-SPEC.md §9.5
 
 ## Scope seed
 

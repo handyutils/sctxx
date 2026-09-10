@@ -3,7 +3,7 @@
 **Feature Branch**: `017-m6-incremental-update`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M6; docs/SPEC.md §11
+**Input**: docs/SCTXX-ROADMAP.md M6; docs/SCTXX-SPEC.md §11
 
 ## Scope seed
 

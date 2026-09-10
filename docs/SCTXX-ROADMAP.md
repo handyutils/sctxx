@@ -30,7 +30,7 @@ measured**. The product is only as good as its measured ability to let the next 
 
 ## Architectural assessment and constraints
 
-- **Starting point.** The technical design exists (`docs/SPEC.md`, v0.1 draft); no code exists yet.
+- **Starting point.** The technical design exists (`docs/SCTXX-SPEC.md`, v0.1 draft); no code exists yet.
   The spec describes *what* the system is. This roadmap decides *in what order* it becomes real, and
   supersedes the draft sequencing in spec §18.
 - **Upstream seed.** Codex CLI's own compaction path is thin (a short prompt; OpenAI-hosted models compact
@@ -63,7 +63,7 @@ converge`). Tasks are checked only after their RED/GREEN loop, gate, evidence, a
 Tickets decide; they do not build. A milestone block's `spec.md` stays a stub until the tickets that
 unlock it are resolved.
 
-`docs/SPEC.md` is the architecture reference that feature specs and plans cite by section.
+`docs/SCTXX-SPEC.md` is the architecture reference that feature specs and plans cite by section.
 `.specify/memory/constitution.md` holds the binding laws. `docs/DEVELOPMENT-LOG.md` records important
 evolutions with full commit hashes. The working method is
 `docs/workmethodology/sctxx-hybrid-engineering-methodology.md`.

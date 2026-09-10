@@ -3,7 +3,7 @@
 **Feature Branch**: `016-m5-eval-harness-and-benchmark`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M5; docs/SPEC.md §15.2
+**Input**: docs/SCTXX-ROADMAP.md M5; docs/SCTXX-SPEC.md §15.2
 
 ## Scope seed
 

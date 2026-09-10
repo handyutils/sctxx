@@ -3,7 +3,7 @@
 **Feature Branch**: `014-m4-v0-1-0-release`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M4; docs/SPEC.md §14, §17
+**Input**: docs/SCTXX-ROADMAP.md M4; docs/SCTXX-SPEC.md §14, §17
 
 ## Scope seed
 

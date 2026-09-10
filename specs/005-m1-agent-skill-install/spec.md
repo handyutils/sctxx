@@ -3,7 +3,7 @@
 **Feature Branch**: `005-m1-agent-skill-install`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M1; docs/SPEC.md §13
+**Input**: docs/SCTXX-ROADMAP.md M1; docs/SCTXX-SPEC.md §13
 
 ## Scope seed
 

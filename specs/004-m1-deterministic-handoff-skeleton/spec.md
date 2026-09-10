@@ -3,7 +3,7 @@
 **Feature Branch**: `004-m1-deterministic-handoff-skeleton`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M1; docs/SPEC.md §7.2 (subset), §7.3 tail, §12, §3.4–3.5
+**Input**: docs/SCTXX-ROADMAP.md M1; docs/SCTXX-SPEC.md §7.2 (subset), §7.3 tail, §12, §3.4–3.5
 
 ## Scope seed
 

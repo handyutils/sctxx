@@ -3,7 +3,7 @@
 **Feature Branch**: `015-m5-probe-loop`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M5; docs/SPEC.md §10.3
+**Input**: docs/SCTXX-ROADMAP.md M5; docs/SCTXX-SPEC.md §10.3
 
 ## Scope seed
 

@@ -16,4 +16,4 @@ Options:
 
 Speak for yourself. Do not let the agent answer this ticket.
 
-Spec reference: `docs/SPEC.md` §12.1, §19 item 6.
+Spec reference: `docs/SCTXX-SPEC.md` §12.1, §19 item 6.

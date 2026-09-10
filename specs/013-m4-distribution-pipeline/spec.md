@@ -3,7 +3,7 @@
 **Feature Branch**: `013-m4-distribution-pipeline`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M4; docs/SPEC.md §14
+**Input**: docs/SCTXX-ROADMAP.md M4; docs/SCTXX-SPEC.md §14
 
 ## Scope seed
 

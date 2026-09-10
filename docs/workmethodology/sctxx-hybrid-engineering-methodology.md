@@ -35,7 +35,7 @@ substitute for the ledger, source, tests, evidence, or git history.
 |---|---|---|
 | `.specify/memory/constitution.md` | binding laws | amended by decision (§17) |
 | `docs/SCTXX-ROADMAP.md` | direction, milestones, invariants, invalidation conditions | product direction changes |
-| `docs/SPEC.md` | architecture reference cited by section (§n) | a decision changes the design |
+| `docs/SCTXX-SPEC.md` | architecture reference cited by section (§n) | a decision changes the design |
 | `specs/000-wayfinding/` | Wayfinder map and decision tickets | a foggy question is asked or resolved |
 | `specs/<NNN-slug>/` | one bounded feature block: spec, research, plan, tasks, evidence | during delivery |
 | `docs/adr/` | architecture decision records, created lazily | a significant decision is made |
@@ -92,7 +92,7 @@ Read `AGENTS.md`, the constitution, the active ledger, and the source paths it n
 - Task: T### - <name>
 - Rigor class: tiny | normal | architectural | high risk
 - Why needed: <user or architectural outcome>
-- Spec refs: docs/SPEC.md §<n>
+- Spec refs: docs/SCTXX-SPEC.md §<n>
 - Scope: <exact paths; paths explicitly out of scope>
 - Fixtures: <tests/fixtures/... used or to be added>
 - Feedback loop: `<exact cargo test filter or command>`
@@ -411,7 +411,7 @@ only if it improves correctness, speed, or clarity. Remove steps that no longer 
 **Feature Branch**: `<NNN-slug>`
 **Created**: <YYYY-MM-DD>
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M#; docs/SPEC.md §<n>
+**Input**: docs/SCTXX-ROADMAP.md M#; docs/SCTXX-SPEC.md §<n>
 
 ## Scope seed
 - <bullets copied from the roadmap block>

@@ -9,7 +9,7 @@ tool live in `skill/SKILL.md`.)
 transcript (Claude Code, Codex CLI, Pi), compacts it into a verified, provenance-linked handoff
 artifact, and lets any other agent continue the work. Published to crates.io, npm, and GitHub Releases.
 
-**The spec is the source of truth: `docs/SPEC.md`.** Section references below (§n) point into it.
+**The spec is the source of truth: `docs/SCTXX-SPEC.md`.** Section references below (§n) point into it.
 Read the relevant section before changing behavior. If code and spec disagree, stop and ask, or record
 a decision (see "Decisions" below). Never resolve an item from §19 "Open questions" silently.
 

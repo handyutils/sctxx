@@ -11,4 +11,4 @@ Should that ship first as the stepwise CLI protocol (`fold init/next/apply/finis
 
 Speak for yourself. Do not let the agent answer this ticket.
 
-Spec reference: `docs/SPEC.md` §9.5, §19 item 5. Unblocks: `specs/018-m6-host-mode-and-mcp/`.
+Spec reference: `docs/SCTXX-SPEC.md` §9.5, §19 item 5. Unblocks: `specs/018-m6-host-mode-and-mcp/`.

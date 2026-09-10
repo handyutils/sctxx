@@ -12,7 +12,7 @@ goal, the last failing command, and the modified files correctly, with every poi
 ## Notes
 
 - Domain: offline, cross-provider compaction of coding-agent sessions into verified handoff artifacts.
-- Always read: `.specify/memory/constitution.md`, `docs/SCTXX-ROADMAP.md`, `docs/SPEC.md` (sections the
+- Always read: `.specify/memory/constitution.md`, `docs/SCTXX-ROADMAP.md`, `docs/SCTXX-SPEC.md` (sections the
   ticket cites), `docs/workmethodology/sctxx-hybrid-engineering-methodology.md`.
 - Skills: `/wayfinder`, `/speckit-specify`, `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`,
   `/speckit-analyze`, `/speckit-implement`, `/speckit-converge`, `/grilling`, `/domain-modeling`,
@@ -23,7 +23,7 @@ goal, the last failing command, and the modified files correctly, with every poi
 
 ## Decisions so far
 
-- [sctxx technical design v0.1](../../docs/SPEC.md) — prior design work (not a closed ticket): offline
+- [sctxx technical design v0.1](../../docs/SCTXX-SPEC.md) — prior design work (not a closed ticket): offline
   pipeline S0–S7, typed-ops anchored fold, vendoring from Codex commit
   `818f1cca8ccf8899f0f4d59336baebaccf358eed`, clean-room Claude Code adapter, single crate, distribution to
   crates.io/npm/GitHub.

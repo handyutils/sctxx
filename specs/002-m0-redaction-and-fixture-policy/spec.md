@@ -3,7 +3,7 @@
 **Feature Branch**: `002-m0-redaction-and-fixture-policy`
 **Created**: 2026-09-10
 **Status**: Stub
-**Input**: docs/SCTXX-ROADMAP.md M0; docs/SPEC.md §10.2, §15.1, §17
+**Input**: docs/SCTXX-ROADMAP.md M0; docs/SCTXX-SPEC.md §10.2, §15.1, §17
 
 ## Scope seed
 
