@@ -33,12 +33,23 @@ goal, the last failing command, and the modified files correctly, with every poi
 - [Same engineering method as ACRYL](../../docs/workmethodology/sctxx-hybrid-engineering-methodology.md) —
   2026-09-10: Spec Kit ledgers, Wayfinder, Matt Pocock SDD, Superpowers, Ponytail, TDD with evidence;
   direct-to-`main` until v0.1.0.
+- [Codex compaction reuse](../../docs/adr/0002-codex-compaction-algorithm-reuse.md) — 2026-09-11: sctxx
+  ports Codex's *retention shape* (newest-first user-message budget, summary kept last) and its
+  windowed-vs-legacy `compacted` distinction, but not the in-loop compaction loop; token-budget
+  compaction is read as validation of the deterministic-first artifact. Resolves spec §19 item 2.
+  Evidence: [`specs/006-m2-codex-adapter/research.md`](../../specs/006-m2-codex-adapter/research.md).
+- [Codex `compacted` readability](issues/05-codex-compacted-readability.md) — 2026-09-11: readable text
+  is not guaranteed (local summary readable; remote encrypted; token-budget deliberately empty), and
+  `window_number` separates a window re-anchor from a legacy history reset. Unblocks
+  `specs/006-m2-codex-adapter/`.
+- [Pin the Codex vendoring source](issues/11-codex-vendoring-pin.md) — 2026-09-11: the `codex/`
+  reference clone is a `0.0.0-dev` (≥0.120) build with no `.git`, so the pinned commit asserted in six
+  places is currently unverifiable. Resolve before the M4 publish.
 
 ## Not yet specified
 
 - Whether v0.1.0 ships with the LLM fold or deterministic-only.
 - Exact Claude Code sidechain/subagent layout across versions.
-- Readability of Codex local `compacted` lines.
 - `cli:` backend command templates per agent CLI version.
 - Chunk-size defaults, judge independence, host mode vs MCP ordering (M3–M6).
 - Artifact location policy and git exclusion.

@@ -1165,7 +1165,13 @@ Output: `report.md` + `report.json`; CI runs a small corpus with the mock backen
 ## 19. Open questions
 
 1. **Claude Code subagent file layout** across versions — confirm from fixtures before finalizing §6.3.
-2. **Codex readable compaction content**: remote `compaction` items are encrypted; confirm whether local `compacted` lines always carry readable text or sometimes only replacement history.
+2. **Codex readable compaction content** — **resolved 2026-09-11** (ADR 0002): readable text is *not*
+   guaranteed. A local summarization writes a readable `message` plus a readable `replacement_history`;
+   remote compaction returns an encrypted `ResponseItem::Compaction`; token-budget compaction writes
+   `message: ""` on purpose. `window_number` additionally separates a *window re-anchor* (transcript
+   intact) from a *legacy history reset*. §6.2's mapping already covers all three cases; the remaining
+   gap is that `NativeCompaction` does not record which kind it saw. Evidence:
+   `specs/006-m2-codex-adapter/research.md`; ticket `issues/05-codex-compacted-readability.md`.
 3. **Chunk size vs. model**: 24k default is a guess; tune with the eval harness per backend.
 4. **Judge independence**: when only one model family is available (e.g. `cli:claude` only), is self-judging good enough, or should LLM probes be disabled and only deterministic probes used?
 5. **Host mode ergonomics**: is a stepwise CLI protocol enough, or should `sctxx mcp` ship earlier so hosts can call `next/apply` as tools?
