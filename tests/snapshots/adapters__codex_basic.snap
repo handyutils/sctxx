@@ -1,0 +1,131 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "[harness] <environment_context> ↵ cwd=/home/dev/sctxx ↵ </environment_context>",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Port the tiered input budgeting from the memories crate. Keep the crate publishable.",
+      "evt": 1,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Look at rollout_input.rs first.",
+      "evt": 2,
+      "kind": "reasoning",
+      "stream": 0
+    },
+    {
+      "detail": "shell (Shell) {\"command\":[\"cargo\",\"test\",\"--all-features\"]}",
+      "evt": 3,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(true) exit=Some(1) {\"exit_code\":1,\"output\":\"error[E0433]: cannot find type `Tier`\\n  --> src/vendor/codex/tiered_input.rs:31:5\\n\",\"success\":false}",
+      "evt": 4,
+      "kind": "tool_result",
+      "stream": 0
+    },
+    {
+      "detail": "apply_patch (Edit) {\"input\":\"*** Begin Patch\\n*** Update File: src/pipeline/ledgers.rs\\n@@\\n-let x = 1;\\n+let x = 2;\\n*** Add File: src/pipeline/tail.rs\\n+pub f",
+      "evt": 5,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(false) exit=Some(0) {\"exit_code\":0,\"output\":\"Success. Updated the following files:\\nM src/pipeline/ledgers.rs\\nA src/pipeline/tail.rs\",\"success\":true",
+      "evt": 6,
+      "kind": "tool_result",
+      "stream": 0
+    },
+    {
+      "detail": "update_plan (Plan) {\"plan\":[{\"status\":\"completed\",\"step\":\"port serialize_tiered_input\"},{\"status\":\"in_progress\",\"step\":\"add the PriorSummary tier\"}]}",
+      "evt": 7,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "[completed] port serialize_tiered_input | [in_progress] add the PriorSummary tier",
+      "evt": 8,
+      "kind": "plan_update",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(false) exit=Some(0) {\"exit_code\":0,\"output\":\"plan updated\",\"success\":true}",
+      "evt": 9,
+      "kind": "tool_result",
+      "stream": 0
+    },
+    {
+      "detail": "shell (Shell) {\"command\":[\"cargo\",\"test\",\"--all-features\"]}",
+      "evt": 10,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(false) exit=Some(0) {\"exit_code\":0,\"output\":\"test result: ok. 178 passed; 0 failed\",\"success\":true}",
+      "evt": 11,
+      "kind": "tool_result",
+      "stream": 0
+    },
+    {
+      "detail": "Ported and green. The budgeting now fills newest-first per tier.",
+      "evt": 12,
+      "kind": "assistant_text",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "agent": "codex",
+  "diagnostics": [
+    {
+      "count": 1,
+      "diagnostic": "unknown_line_kind",
+      "kind": "token_usage_record"
+    }
+  ],
+  "events": 13,
+  "id": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8",
+  "kind_counts": {
+    "assistant_text": 1,
+    "plan_update": 1,
+    "reasoning": 1,
+    "tool_call": 4,
+    "tool_result": 4,
+    "user_message": 2
+  },
+  "meta": {
+    "agent_version": "0.58.0",
+    "cwd": "/home/dev/sctxx",
+    "ended_at": "2026-09-01T08:00:00.000Z",
+    "git_branch": "main",
+    "models": [
+      "gpt-5-codex"
+    ],
+    "started_at": "2026-09-01T08:00:00.000Z"
+  },
+  "native_compactions": [],
+  "user_turns": 1
+}

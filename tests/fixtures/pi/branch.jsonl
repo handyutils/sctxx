@@ -1,0 +1,8 @@
+{"type": "session", "version": 3, "id": "pi-branch", "timestamp": "2026-09-06T09:00:00.000Z", "cwd": "/home/dev/lat"}
+{"type": "message", "id": "m1", "parentId": null, "message": {"role": "user", "content": "rename the config key"}}
+{"type": "message", "id": "m2", "parentId": "m1", "message": {"role": "assistant", "content": "Renaming."}}
+{"type": "message", "id": "m3b", "parentId": "m2", "message": {"role": "user", "content": "call it maxTokens"}}
+{"type": "branchSummary", "id": "b1", "parentId": "m3b", "summary": "Tried maxTokens; the user preferred budget."}
+{"type": "message", "id": "m3", "parentId": "m2", "message": {"role": "user", "content": "call it budget"}}
+{"type": "message", "id": "m4", "parentId": "m3", "message": {"role": "assistant", "content": "Renamed to budget.", "toolCall": {"id": "t1", "name": "write", "arguments": {"path": "src/config.ts"}}}}
+{"type": "message", "id": "m5", "parentId": "m4", "message": {"role": "toolResult", "toolCallId": "t1", "content": "written"}}

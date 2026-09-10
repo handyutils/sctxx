@@ -1,0 +1,100 @@
+---
+source: tests/pipeline.rs
+expression: stable(&markdown)
+---
+---
+schema: sctxx.handoff/v1
+sctxx: <version>
+source: <normalized>
+mode: standard
+llm: none
+prompts: {fold_system: 1, fold_user: 1, premap: 1, final_pass: 1, repair: 1, handoff_preamble: 1}
+verification: {repo: none, head: none, commits_since_session: 0, stale: 0, contradicted: 0}
+tokens: <normalized>
+---
+
+# Handoff: ACRYL extension engine — manifest loader and trust tiers
+
+> A different coding agent worked on this task in an earlier session. What follows is a
+> compressed, provenance-linked record of that session, produced by `sctxx`. Use it to build on
+> the work already done instead of repeating it — but treat it as a map, not as ground truth.
+> Run the verify-first commands before you change anything, treat "Hard constraints" as binding
+> user instructions, and expand any `[evt a–b]` pointer you need with `sctxx expand`.
+
+## L0 · Brief
+
+**Goal** (from the first user message, not model-inferred): Implement the manifest loader with five trust tiers. Never auto-install extensions from the registry without asking me. [evt 0]
+
+**Last user request**: ok now make tier 3 actually sandboxed [evt 12]
+
+**Next actions** (derived from the ledgers, not model-inferred)
+1. wire TrustTier::Sandboxed into ModuleHost::spawn (plan item, in_progress) [evt 5]
+2. tests for tier 3 (plan item, pending) [evt 5]
+3. re-run `pnpm vitest run packages/ext-engine` — its last run FAILED [evt 14]
+4. resolve `c5e689ad56e4` (×2) — FAIL packages/ext-engine/host.test.ts   TypeError: Cannot read propert…7 tokens truncated…capabilities')     at ModuleHost.spawn (src/host/module-host.ts:41:22) [evt 10–15]
+
+**Verify first**
+- `git status`
+- `git log --oneline -5`
+- `pnpm vitest run packages/ext-engine`
+
+
+## L1 · Items
+
+### Files touched
+
+| path | ops | last evt | status |
+|---|---|---|---|
+| `src/host/module-host.ts` | edit×1 read×1 | 7 | exists |
+
+### Last known command status
+- `pnpm vitest run packages/ext-engine` → **FAILED** [evt 14]
+
+### Unresolved errors
+- `c5e689ad56e4` ×2 — FAIL packages/ext-engine/host.test.ts   TypeError: Cannot read properties of undefined (reading 'capabilities')     at ModuleHost.spawn (src/host/module-host.ts:41:22) [evt 10–15]
+
+### Plan as last published [evt 5]
+- [x] define the manifest schema (completed)
+- [ ] wire TrustTier::Sandboxed into ModuleHost::spawn (in_progress)
+- [ ] tests for tier 3 (pending)
+
+## L2 · Recent activity (masked, evt 0–15)
+
+```text
+[user] Implement the manifest loader with five trust tiers. Never auto-install extensions from the registry without asking me.  (evt 0)
+[assistant] I'll start with the manifest schema, then wire the tiers into ModuleHost.  (evt 1)
+[call Read #toolu_01aaa] file_path=src/host/module-host.ts  (evt 2)
+[result #toolu_01aaa] [3 lines, 41 bytes: export class ModuleHost {…]  (evt 3)
+[plan] ☑ define the manifest schema · ▸ wire TrustTier::Sandboxed into ModuleHost::spawn · ☐ tests for tier 3  (evt 5)
+[result #toolu_01bbb] [Todos updated]  (evt 6)
+[call Edit #toolu_01ccc] src/host/module-host.ts (+3 −1)  (evt 7)
+[result #toolu_01ccc] [The file src/host/module-host.ts has been updated.]  (evt 8)
+[call Bash #toolu_01ddd] command=pnpm vitest run packages/ext-engine  (evt 9)
+[result #toolu_01ddd ERROR] FAIL packages/ext-engine/host.test.ts
+  TypeError: Cannot read properties of undefined (reading 'capabilities')
+    at ModuleHost.spawn (src/host/module-host.ts:41:22)
+
+Tests: 2 failed, 9 passed  (evt 10)
+[assistant] The capability set is not resolved before spawn. I need to pass the resolved set, not the raw manifest.  (evt 11)
+[user] ok now make tier 3 actually sandboxed  (evt 12)
+[call Bash #toolu_01eee] command=pnpm vitest run packages/ext-engine  (evt 14)
+[result #toolu_01eee ERROR] FAIL packages/ext-engine/host.test.ts
+  TypeError: Cannot read properties of undefined (reading 'capabilities')
+    at ModuleHost.spawn (src/host/module-host.ts:41:22)
+
+Tests: 2 failed, 9 passed  (evt 15)
+```
+
+## L3 · Retrieval
+
+Source: Claude Code session `7c1e8f82-4d5e-6f70-8192-a3b4c5d6e7f8`
+<path>/basic.jsonl`
+
+Expand any pointer:
+```sh
+sctxx expand claude:7c1e8f82-4d5e-6f70-8192-a3b4c5d6e7f8 <a>..<b> --context 3
+```
+
+Full state including superseded and dropped items: `state.json`. All deterministic ledgers: `ledgers.json`. Run details: `report.json`.
+
+Session source hash: `5eb5de4`

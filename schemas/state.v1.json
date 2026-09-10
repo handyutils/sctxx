@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sctxx.dev/schemas/state.v1.json",
+  "title": "sctxx fold state (state.v1)",
+  "description": "The full handoff state, including superseded and dropped items and the operation audit trail. Written to state.json.",
+  "type": "object",
+  "required": ["version", "items"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "ops_log": {
+      "type": "array",
+      "description": "Every operation that was accepted and applied, in order.",
+      "items": {
+        "type": "object",
+        "required": ["chunk_id", "op"],
+        "properties": {
+          "chunk_id": { "type": "string" },
+          "op": { "$ref": "https://sctxx.dev/schemas/ops.v1.json#/$defs/op" },
+          "created": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "rejected": {
+      "type": "array",
+      "description": "Operations a validation gate refused, with the reason.",
+      "items": {
+        "type": "object",
+        "required": ["chunk_id", "op_name", "reason"],
+        "properties": {
+          "chunk_id": { "type": "string" },
+          "op_name": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "processed": { "type": "array", "items": { "type": "string" } },
+    "next_seq": { "type": "object", "additionalProperties": { "type": "integer" } }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["id", "kind", "text", "sources", "status", "confidence", "verified", "last_confirmed"],
+      "properties": {
+        "id": { "type": "string", "description": "Kind prefix plus sequence, e.g. C1, D12, X4." },
+        "kind": { "$ref": "https://sctxx.dev/schemas/ops.v1.json#/$defs/kind" },
+        "text": { "type": "string" },
+        "why": { "type": "string" },
+        "quote": { "type": "string" },
+        "rejected": { "type": "array", "items": { "type": "string" } },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "https://sctxx.dev/schemas/ops.v1.json#/$defs/range" }
+        },
+        "status": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["active", "superseded", "resolved", "dropped"] },
+            "by": { "type": "string" },
+            "evt": { "type": "integer" },
+            "reason": { "type": "string" }
+          }
+        },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "verified": {
+          "enum": ["unchecked", "verified", "stale", "contradicted"],
+          "description": "Result of reconciling this item against the current repository."
+        },
+        "last_confirmed": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

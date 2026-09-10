@@ -1,0 +1,64 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "Earlier work: migrated the store to sqlite.",
+      "evt": 0,
+      "kind": "native_compaction_summary",
+      "stream": 0
+    },
+    {
+      "detail": "finish the sqlite migration",
+      "evt": 1,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Running the migration tests.",
+      "evt": 2,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "npm test -> exit=Some(0)",
+      "evt": 3,
+      "kind": "shell_execution",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "agent": "pi",
+  "diagnostics": [
+    {
+      "diagnostic": "note",
+      "message": "pi session format v1"
+    }
+  ],
+  "events": 4,
+  "id": "pi-v1",
+  "kind_counts": {
+    "assistant_text": 1,
+    "native_compaction_summary": 1,
+    "shell_execution": 1,
+    "user_message": 1
+  },
+  "meta": {
+    "cwd": "/home/dev/old",
+    "started_at": "2026-07-01T10:00:00.000Z"
+  },
+  "native_compactions": [
+    {
+      "evt": 0,
+      "summary": "Earlier work: migrated the store to sqlite."
+    }
+  ],
+  "user_turns": 1
+}

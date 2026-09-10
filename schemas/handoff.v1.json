@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sctxx.dev/schemas/handoff.v1.json",
+  "title": "sctxx handoff artifact (sctxx.handoff/v1)",
+  "description": "The machine-readable handoff artifact written to handoff.json. handoff.md carries the same content in layers L0-L3.",
+  "type": "object",
+  "required": ["schema", "sctxx", "session", "mode", "llm", "items", "ledgers", "verification"],
+  "properties": {
+    "schema": { "const": "sctxx.handoff/v1" },
+    "sctxx": { "type": "string", "description": "Version of sctxx that produced this artifact." },
+    "session": {
+      "type": "object",
+      "required": ["agent", "id", "source_hash", "events", "active", "user_turns"],
+      "properties": {
+        "agent": { "enum": ["claude", "codex", "pi"] },
+        "id": { "type": "string" },
+        "source_paths": { "type": "array", "items": { "type": "string" } },
+        "source_hash": { "type": "string", "description": "sha256 of the decompressed source bytes." },
+        "events": { "type": "integer" },
+        "active": { "type": "integer", "description": "Events on the active branch after rewinds and rollbacks." },
+        "user_turns": { "type": "integer" },
+        "cwd": { "type": "string" },
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "git_branch": { "type": "string" },
+        "agent_version": { "type": "string" },
+        "models": { "type": "array", "items": { "type": "string" } },
+        "title": { "type": "string" },
+        "forked_from": { "type": "string" }
+      }
+    },
+    "mode": { "enum": ["fast", "standard", "full"] },
+    "llm": { "type": "string", "description": "Backend used, or \"none\" for the deterministic artifact." },
+    "prompts": {
+      "type": "array",
+      "description": "Prompt ids and versions this artifact was produced with.",
+      "items": { "type": "array", "minItems": 2, "maxItems": 2 }
+    },
+    "items": {
+      "type": "array",
+      "description": "Active state items, in rendering priority order.",
+      "items": { "$ref": "https://sctxx.dev/schemas/state.v1.json#/$defs/item" }
+    },
+    "ledgers": {
+      "type": "object",
+      "description": "Deterministic records computed in Rust, true whether or not a model ran.",
+      "properties": {
+        "files": { "type": "array" },
+        "commands": { "type": "array" },
+        "errors": { "type": "array" },
+        "user_messages": { "type": "array" },
+        "plan": { "type": ["object", "null"] },
+        "git": { "type": "object" },
+        "prior_summaries": { "type": "array" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "How the artifact compared to the repository at extraction time. The repository wins.",
+      "properties": {
+        "repo": { "type": "string" },
+        "head": { "type": "string" },
+        "branch": { "type": "string" },
+        "session_branch": { "type": "string" },
+        "commits_since_session": { "type": "array", "items": { "type": "string" } },
+        "missing_files": { "type": "array", "items": { "type": "string" } },
+        "contradicted_files": { "type": "array", "items": { "type": "string" } },
+        "changed_since_session": { "type": "array", "items": { "type": "string" } },
+        "missing_commits": { "type": "array", "items": { "type": "string" } },
+        "uncommitted_changes": { "type": "integer" },
+        "note": { "type": "string" }
+      }
+    },
+    "tail": {
+      "type": "array",
+      "description": "Masked rows of the recency tail (layer L2).",
+      "items": {
+        "type": "object",
+        "required": ["evt", "text"],
+        "properties": { "evt": { "type": "integer" }, "text": { "type": "string" } }
+      }
+    }
+  }
+}

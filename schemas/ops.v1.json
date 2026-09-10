@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sctxx.dev/schemas/ops.v1.json",
+  "title": "sctxx fold operations (ops.v1)",
+  "description": "The only output the anchored fold may produce: typed operations against the handoff state. Applied by sctxx after validation.",
+  "type": "object",
+  "required": ["chunk_id", "ops"],
+  "additionalProperties": false,
+  "properties": {
+    "chunk_id": { "type": "string" },
+    "ops": { "type": "array", "items": { "$ref": "#/$defs/op" } }
+  },
+  "$defs": {
+    "range": {
+      "description": "An inclusive canonical event range [start, end].",
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "kind": {
+      "enum": [
+        "goal",
+        "constraint",
+        "decision",
+        "dead_end",
+        "env_fact",
+        "open_thread",
+        "current_step",
+        "next_action",
+        "question"
+      ]
+    },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "newItem": {
+      "type": "object",
+      "required": ["kind", "text", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/kind" },
+        "text": { "type": "string", "description": "At most 60 words." },
+        "why": { "type": "string", "description": "At most 40 words. Rationale for a decision or dead end." },
+        "quote": {
+          "type": "string",
+          "description": "Required for kind=constraint: the user's verbatim words, checked against the source."
+        },
+        "rejected": { "type": "array", "items": { "type": "string" } },
+        "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/range" } },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "op": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["op", "kind", "text", "sources"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "add" },
+            "kind": { "$ref": "#/$defs/kind" },
+            "text": { "type": "string" },
+            "why": { "type": "string" },
+            "quote": { "type": "string" },
+            "rejected": { "type": "array", "items": { "type": "string" } },
+            "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/range" } },
+            "confidence": { "$ref": "#/$defs/confidence" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "update" },
+            "id": { "type": "string" },
+            "text": { "type": "string" },
+            "why": { "type": "string" },
+            "add_sources": { "type": "array", "items": { "$ref": "#/$defs/range" } }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "id", "replacement"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "supersede" },
+            "id": { "type": "string" },
+            "replacement": { "$ref": "#/$defs/newItem" },
+            "reason": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "id", "evt"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "resolve" },
+            "id": { "type": "string" },
+            "evt": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "id", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "drop" },
+            "id": { "type": "string" },
+            "reason": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "ids", "merged"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "merge" },
+            "ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "merged": { "$ref": "#/$defs/newItem" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "id", "evt"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "confirm" },
+            "id": { "type": "string" },
+            "evt": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    }
+  }
+}

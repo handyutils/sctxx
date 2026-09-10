@@ -1,0 +1,78 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "rename the config key",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Renaming.",
+      "evt": 1,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "call it budget",
+      "evt": 4,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Renamed to budget.",
+      "evt": 5,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "write (Edit) {\"path\":\"src/config.ts\"}",
+      "evt": 6,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=None exit=None written",
+      "evt": 7,
+      "kind": "tool_result",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    4,
+    5,
+    6,
+    7
+  ],
+  "agent": "pi",
+  "diagnostics": [
+    {
+      "diagnostic": "note",
+      "message": "pi session format v3"
+    },
+    {
+      "diagnostic": "abandoned_branch",
+      "from": 2,
+      "len": 2
+    }
+  ],
+  "events": 8,
+  "id": "pi-branch",
+  "kind_counts": {
+    "assistant_text": 2,
+    "tool_call": 1,
+    "tool_result": 1,
+    "user_message": 2
+  },
+  "meta": {
+    "cwd": "/home/dev/lat",
+    "started_at": "2026-09-06T09:00:00.000Z"
+  },
+  "native_compactions": [],
+  "user_turns": 2
+}

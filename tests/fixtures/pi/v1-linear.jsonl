@@ -1,0 +1,5 @@
+{"type": "session", "version": 1, "id": "pi-v1", "timestamp": "2026-07-01T10:00:00.000Z", "cwd": "/home/dev/old"}
+{"type": "compactionSummary", "summary": "Earlier work: migrated the store to sqlite."}
+{"type": "message", "message": {"role": "user", "content": "finish the sqlite migration"}}
+{"type": "message", "message": {"role": "assistant", "content": "Running the migration tests."}}
+{"type": "bashExecution", "command": "npm test", "output": "all good", "exitCode": 0}

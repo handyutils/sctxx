@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sctxx.dev/schemas/ir.v1.json",
+  "title": "sctxx canonical session IR (ir.v1)",
+  "description": "The provider-independent event model that `sctxx show --view ir` prints. Adapters must never drop a line: an unrecognized one becomes an `unknown` event plus a diagnostic.",
+  "type": "object",
+  "required": ["agent", "id", "source_hash", "events", "active"],
+  "properties": {
+    "agent": { "enum": ["claude-code", "codex", "pi"] },
+    "id": { "type": "string" },
+    "source_paths": { "type": "array", "items": { "type": "string" } },
+    "source_hash": { "type": "string" },
+    "meta": { "type": "object" },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+    "active": {
+      "type": "array",
+      "description": "Indices of events on the active branch, strictly increasing.",
+      "items": { "type": "integer", "minimum": 0 }
+    },
+    "native_compactions": { "type": "array" },
+    "diagnostics": { "type": "array" }
+  },
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": ["idx", "stream", "kind", "line"],
+      "properties": {
+        "idx": { "type": "integer", "minimum": 0, "description": "Position in file order; events[i].idx == i." },
+        "native_id": { "type": "string" },
+        "parent": { "type": "string" },
+        "ts": { "type": "string" },
+        "stream": { "type": "integer", "description": "0 is the main conversation; higher ids are subagent sidechains." },
+        "kind": {
+          "enum": [
+            "user_message",
+            "assistant_text",
+            "reasoning",
+            "tool_call",
+            "tool_result",
+            "shell_execution",
+            "plan_update",
+            "user_answer",
+            "native_compaction_summary",
+            "branch_summary",
+            "rollback",
+            "model_change",
+            "subagent_spawn",
+            "subagent_result",
+            "system",
+            "unknown"
+          ]
+        },
+        "line": {
+          "type": "object",
+          "required": ["path", "line"],
+          "properties": {
+            "path": { "type": "integer", "description": "Index into source_paths." },
+            "line": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    }
+  }
+}

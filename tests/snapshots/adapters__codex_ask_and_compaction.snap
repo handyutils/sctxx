@@ -1,0 +1,84 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "set up the release pipeline",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "request_user_input (Ask) {\"questions\":[{\"question\":\"Publish to npm as well as crates.io?\"}]}",
+      "evt": 1,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "Q: Publish to npm as well as crates.io? / A: crates.io only for now",
+      "evt": 2,
+      "kind": "user_answer",
+      "stream": 0
+    },
+    {
+      "detail": "Earlier: chose cargo-dist for six targets; npm deferred.",
+      "evt": 3,
+      "kind": "native_compaction_summary",
+      "stream": 0
+    },
+    {
+      "detail": "{\"data\":{\"x\":1},\"type\":\"some_future_item\"}",
+      "evt": 4,
+      "kind": "unknown",
+      "stream": 0
+    },
+    {
+      "detail": "Configured cargo-dist for six targets.",
+      "evt": 5,
+      "kind": "assistant_text",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "agent": "codex",
+  "diagnostics": [
+    {
+      "count": 1,
+      "diagnostic": "unknown_line_kind",
+      "kind": "response_item:some_future_item"
+    }
+  ],
+  "events": 6,
+  "id": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8",
+  "kind_counts": {
+    "assistant_text": 1,
+    "native_compaction_summary": 1,
+    "tool_call": 1,
+    "unknown": 1,
+    "user_answer": 1,
+    "user_message": 1
+  },
+  "meta": {
+    "agent_version": "0.58.0",
+    "cwd": "/home/dev/sctxx",
+    "ended_at": "2026-09-01T08:00:00.000Z",
+    "git_branch": "main",
+    "started_at": "2026-09-01T08:00:00.000Z"
+  },
+  "native_compactions": [
+    {
+      "evt": 3,
+      "summary": "Earlier: chose cargo-dist for six targets; npm deferred."
+    }
+  ],
+  "user_turns": 2
+}

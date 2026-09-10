@@ -1,0 +1,71 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "survey the codebase for dead code",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "stream 1: Search for exported symbols with no importers.",
+      "evt": 1,
+      "kind": "subagent_spawn",
+      "stream": 0
+    },
+    {
+      "detail": "stream 1: Found 3 unused exports in src/legacy/.",
+      "evt": 4,
+      "kind": "subagent_result",
+      "stream": 0
+    },
+    {
+      "detail": "delete them",
+      "evt": 6,
+      "kind": "user_message",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    4,
+    6
+  ],
+  "agent": "claude-code",
+  "diagnostics": [
+    {
+      "diagnostic": "bad_line",
+      "line": 8,
+      "message": "EOF while parsing a value at line 1 column 80",
+      "path": 0
+    },
+    {
+      "count": 1,
+      "diagnostic": "unknown_line_kind",
+      "kind": "future_entry_kind"
+    }
+  ],
+  "events": 7,
+  "id": "7c1e8f82-4d5e-6f70-8192-a3b4c5d6e7f8",
+  "kind_counts": {
+    "subagent_result": 1,
+    "subagent_spawn": 1,
+    "user_message": 2
+  },
+  "meta": {
+    "agent_version": "2.1.7",
+    "cwd": "/home/dev/acryl",
+    "ended_at": "2026-08-28T09:12:44.000Z",
+    "git_branch": "feat/ext-engine",
+    "models": [
+      "claude-sonnet-4-5"
+    ],
+    "started_at": "2026-08-28T09:12:44.000Z"
+  },
+  "native_compactions": [],
+  "user_turns": 2
+}

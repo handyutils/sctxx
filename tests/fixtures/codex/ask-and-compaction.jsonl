@@ -1,0 +1,7 @@
+{"timestamp": "2026-09-01T08:00:00.000Z", "type": "session_meta", "payload": {"meta": {"id": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8", "timestamp": "2026-09-01T08:00:00.000Z", "cwd": "/home/dev/sctxx", "cli_version": "0.58.0", "originator": "codex_cli_rs"}, "git": {"branch": "main", "commit_hash": "4be91c2"}}}
+{"timestamp": "2026-09-01T08:00:00.000Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "set up the release pipeline"}]}}
+{"timestamp": "2026-09-01T08:00:00.000Z", "type": "response_item", "payload": {"type": "function_call", "name": "request_user_input", "call_id": "q1", "arguments": "{\"questions\": [{\"question\": \"Publish to npm as well as crates.io?\"}]}"}}
+{"timestamp": "2026-09-01T08:00:00.000Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "q1", "output": {"answers": {"q0": {"answers": ["crates.io only for now"]}}}}}
+{"timestamp": "2026-09-01T08:00:00.000Z", "type": "compacted", "payload": {"message": "Earlier: chose cargo-dist for six targets; npm deferred."}}
+{"timestamp": "2026-09-01T08:00:00.000Z", "type": "response_item", "payload": {"type": "some_future_item", "data": {"x": 1}}}
+{"timestamp": "2026-09-01T08:00:00.000Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Configured cargo-dist for six targets."}]}}

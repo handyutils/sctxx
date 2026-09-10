@@ -1,0 +1,73 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "add a retry to the fetch helper",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "I'll add an exponential backoff.",
+      "evt": 1,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "no, keep it dependency free",
+      "evt": 4,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Edit (Edit) {\"file_path\":\"src/fetch.ts\",\"new_string\":\"return withBackoff(() => fetch(url))\",\"old_string\":\"return fetch(url)\"}",
+      "evt": 5,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(false) exit=None The file src/fetch.ts has been updated.",
+      "evt": 6,
+      "kind": "tool_result",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    4,
+    5,
+    6
+  ],
+  "agent": "claude-code",
+  "diagnostics": [
+    {
+      "diagnostic": "abandoned_branch",
+      "from": 2,
+      "len": 2
+    }
+  ],
+  "events": 7,
+  "id": "7c1e8f82-4d5e-6f70-8192-a3b4c5d6e7f8",
+  "kind_counts": {
+    "assistant_text": 1,
+    "tool_call": 1,
+    "tool_result": 1,
+    "user_message": 2
+  },
+  "meta": {
+    "agent_version": "2.1.7",
+    "cwd": "/home/dev/acryl",
+    "ended_at": "2026-08-28T09:12:44.000Z",
+    "git_branch": "feat/ext-engine",
+    "models": [
+      "claude-sonnet-4-5"
+    ],
+    "started_at": "2026-08-28T09:12:44.000Z"
+  },
+  "native_compactions": [],
+  "user_turns": 2
+}

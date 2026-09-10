@@ -1,0 +1,80 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "start the auth migration",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Reading the current auth module.",
+      "evt": 1,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "Prior session summary: the auth migration moved sessions to JWT. Two tests still fail.",
+      "evt": 2,
+      "kind": "native_compaction_summary",
+      "stream": 0
+    },
+    {
+      "detail": "continue where you left off",
+      "evt": 3,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Bash (Shell) {\"command\":\"cargo test --all-features auth\"}",
+      "evt": 4,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(false) exit=None test result: ok. 41 passed; 0 failed",
+      "evt": 5,
+      "kind": "tool_result",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "agent": "claude-code",
+  "diagnostics": [],
+  "events": 6,
+  "id": "7c1e8f82-4d5e-6f70-8192-a3b4c5d6e7f8",
+  "kind_counts": {
+    "assistant_text": 1,
+    "native_compaction_summary": 1,
+    "tool_call": 1,
+    "tool_result": 1,
+    "user_message": 2
+  },
+  "meta": {
+    "agent_version": "2.1.7",
+    "cwd": "/home/dev/acryl",
+    "ended_at": "2026-08-28T09:12:44.000Z",
+    "git_branch": "feat/ext-engine",
+    "models": [
+      "claude-sonnet-4-5"
+    ],
+    "started_at": "2026-08-28T09:12:44.000Z"
+  },
+  "native_compactions": [
+    {
+      "evt": 2,
+      "summary": "Prior session summary: the auth migration moved sessions to JWT. Two tests still fail."
+    }
+  ],
+  "user_turns": 2
+}

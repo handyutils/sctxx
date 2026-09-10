@@ -1,0 +1,116 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "Export durable items to lat.md sections. Do not touch the parser.",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Find the section writer first.",
+      "evt": 1,
+      "kind": "reasoning",
+      "stream": 0
+    },
+    {
+      "detail": "I'll add an exporter next to the writer.",
+      "evt": 2,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "read (Read) {\"path\":\"src/sections.ts\"}",
+      "evt": 3,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(false) exit=None export function writeSection() {}",
+      "evt": 4,
+      "kind": "tool_result",
+      "stream": 0
+    },
+    {
+      "detail": "pnpm test sections -> exit=Some(1)",
+      "evt": 5,
+      "kind": "shell_execution",
+      "stream": 0
+    },
+    {
+      "detail": "the second section is being swallowed, look at the delimiter",
+      "evt": 6,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "claude-sonnet-4-5",
+      "evt": 7,
+      "kind": "model_change",
+      "stream": 0
+    },
+    {
+      "detail": "The delimiter regex was greedy. Fixed.",
+      "evt": 8,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "edit (Edit) {\"path\":\"src/sections.ts\"}",
+      "evt": 9,
+      "kind": "tool_call",
+      "stream": 0
+    },
+    {
+      "detail": "error=Some(false) exit=None ok",
+      "evt": 10,
+      "kind": "tool_result",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "agent": "pi",
+  "diagnostics": [
+    {
+      "diagnostic": "note",
+      "message": "pi session format v3"
+    }
+  ],
+  "events": 11,
+  "id": "pi-9a8b7c6d",
+  "kind_counts": {
+    "assistant_text": 2,
+    "model_change": 1,
+    "reasoning": 1,
+    "shell_execution": 1,
+    "tool_call": 2,
+    "tool_result": 2,
+    "user_message": 2
+  },
+  "meta": {
+    "cwd": "/home/dev/lat",
+    "ended_at": "2026-09-05T14:03:01.000Z",
+    "models": [
+      "claude-sonnet-4-5"
+    ],
+    "started_at": "2026-09-05T14:00:00.000Z",
+    "title": "lat.md section export"
+  },
+  "native_compactions": [],
+  "user_turns": 2
+}
