@@ -4,7 +4,7 @@
 - **Date**: 2026-09-11
 - **Affects**: `specs/024-m8-interactive-tui/` (FR-026 to FR-028), `Cargo.toml` (`rust-version`,
   feature `tui`), `.github/workflows/ci.yml` (MSRV job), `CHANGELOG.md`
-- **Resolves**: [`12-croft-reuse-and-mit-attribution`](../specs/000-wayfinding/issues/12-croft-reuse-and-mit-attribution.md)
+- **Resolves**: [`12-croft-reuse-and-mit-attribution`](../../specs/000-wayfinding/issues/12-croft-reuse-and-mit-attribution.md)
 
 ## Context
 
@@ -106,7 +106,7 @@ arrival rather than retrofitted:
   `--tui` flag.
 - **Build on agentman.** Rejected here, not on merit: it is a TUI over the same domain, but the
   relationship needs its own decision — ticket
-  [`13-sctxx-and-agentman-relationship`](../specs/000-wayfinding/issues/13-sctxx-and-agentman-relationship.md).
+  [`13-sctxx-and-agentman-relationship`](../../specs/000-wayfinding/issues/13-sctxx-and-agentman-relationship.md).
 
 ## Consequences
 
