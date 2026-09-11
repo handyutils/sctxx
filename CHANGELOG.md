@@ -25,6 +25,15 @@ bump and a compatibility note.
 - `sctxx` now reports fold progress per chunk on stderr. A 40-chunk fold against a real backend runs
   for hours and previously printed nothing between "40 chunk(s) to fold" and the end; a silent
   terminal for ninety minutes is indistinguishable from a hang.
+- `sctxx expand <ref> A..B` pages its output. A range larger than `--max-payload` (default 4,000
+  tokens) is delivered as exact, consecutive, non-overlapping pages, each printing its number, its
+  event span, and the command for the next one. Previously a large range was one unbounded dump with
+  no way to ask for the rest.
+- **`--model-context` and `--max-completion`.** Given a window, every fold and premap prompt is
+  checked as `K = B + M + R + P + Q + η ≤ L = --model-context − --max-completion` before it is sent
+  (ARC arXiv:2607.25066, Theorem 15). A session that cannot fit fails once, in 22 s, naming each term
+  and which knob to turn — instead of failing once per chunk for two hours.
+- The README and `docs/research/` state which published work each mechanism comes from, with links.
 
 ### Fixed
 
@@ -35,6 +44,9 @@ bump and a compatibility note.
   never refused.
 - **`--budget` did not bound L0.** `--budget 400` emitted a 1,200-token brief: the brief had its own
   fixed ceiling and three of its blocks were charged to no budget at all.
+- **The prompt-window check missed half the calls.** Premap builds its own request and calls the
+  backend directly, so the check covered 41 of an 81-call run and let the other 40 go out
+  unmeasured. Every premap prompt is now built and checked before a thread is spawned.
 - **`--budget` did not bound the artifact either: the omitted-item footer listed every excluded id**,
   making the layer's size linear in the number of items the budget had just excluded. ARC
   (arXiv:2607.25066, Proposition 9) proves no constant can bound a prompt containing such a list. The
