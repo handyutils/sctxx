@@ -143,6 +143,64 @@ fn since_compact_is_a_notice_not_a_failure_when_nothing_compacted() {
 }
 
 #[test]
+fn extract_warns_when_git_would_track_the_artifact() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    if !git_available(repo) {
+        return;
+    }
+    let out = repo.join(".sctxx");
+
+    let warned = sctxx()
+        .args(["extract"])
+        .arg(fixtures().join("codex/basic.jsonl"))
+        .args(["--llm", "none", "--no-verify"])
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("run");
+    assert!(warned.status.success(), "{}", stderr_of(&warned));
+    assert!(
+        stderr_of(&warned).contains("not ignored by git"),
+        "an artifact holding session content must not be silently committable: {}",
+        stderr_of(&warned)
+    );
+    // The warning is a note, not the payload: stdout stays the artifact path.
+    assert_eq!(
+        stdout_of(&warned).trim(),
+        out.join("handoff.md").display().to_string()
+    );
+
+    // Once the directory is ignored, the warning goes away.
+    std::fs::write(repo.join(".git/info/exclude"), ".sctxx/\n").expect("write exclude");
+    let quiet = sctxx()
+        .args(["extract"])
+        .arg(fixtures().join("codex/basic.jsonl"))
+        .args(["--llm", "none", "--no-verify"])
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("run");
+    assert!(quiet.status.success(), "{}", stderr_of(&quiet));
+    assert!(
+        !stderr_of(&quiet).contains("not ignored by git"),
+        "{}",
+        stderr_of(&quiet)
+    );
+}
+
+/// Initialise a scratch repository, returning false when git is unavailable.
+fn git_available(dir: &Path) -> bool {
+    std::process::Command::new("git")
+        .arg("init")
+        .arg("-q")
+        .arg(dir)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[test]
 fn extract_to_a_directory_writes_five_files_and_prints_the_artifact_path() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join(".sctxx");

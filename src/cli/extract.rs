@@ -220,6 +220,7 @@ fn write_output(
                     .collect::<Vec<String>>()
                     .join(", ")
             ));
+            warn_if_git_would_track(path, global);
             // The path the receiving agent should read is the payload.
             out(&path.join("handoff.md").to_string_lossy());
             return Ok(0);
@@ -227,6 +228,24 @@ fn write_output(
     }
     out(&path.to_string_lossy());
     Ok(0)
+}
+
+/// Warn when the artifact directory sits in a repository and is not ignored.
+///
+/// An artifact quotes the session: user messages verbatim, file paths, error
+/// output. A `git add -A` in the user's project would commit that, and push it.
+/// sctxx does not edit the user's git config on its own — it says what to run.
+fn warn_if_git_would_track(path: &std::path::Path, global: &GlobalArgs) {
+    if pipeline::reconcile::is_git_ignored(path) != Some(false) {
+        return;
+    }
+    let shown = path.to_string_lossy();
+    global.note(&format!(
+        "warning: {shown} is not ignored by git, and it holds this session's content.\n\
+         \x20        Keep it out of the repository with:\n\
+         \x20          echo '{shown}/' >> \"$(git rev-parse --git-dir)/info/exclude\"\n\
+         \x20        (or add it to .gitignore if you mean to commit the ignore rule)"
+    ));
 }
 
 fn write_file(path: &std::path::Path, content: &str) -> Result<()> {

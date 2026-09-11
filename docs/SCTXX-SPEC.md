@@ -1175,7 +1175,10 @@ Output: `report.md` + `report.json`; CI runs a small corpus with the mock backen
 3. **Chunk size vs. model**: 24k default is a guess; tune with the eval harness per backend.
 4. **Judge independence**: when only one model family is available (e.g. `cli:claude` only), is self-judging good enough, or should LLM probes be disabled and only deterministic probes used?
 5. **Host mode ergonomics**: is a stepwise CLI protocol enough, or should `sctxx mcp` ship earlier so hosts can call `next/apply` as tools?
-6. **Artifact placement**: `.sctxx/` in the repo is convenient but may get committed; add it to `.git/info/exclude` automatically on first write?
+6. **Artifact placement** — **resolved 2026-09-11**: sctxx never edits the user's git configuration
+   itself. When `--out <dir>` writes into a repository and `git check-ignore` says the directory is
+   *not* ignored, `extract` prints the reason and the exact command to fix it, on stderr, so stdout
+   stays the artifact path. The check is read-only and on the §10.1 allowlist. Off by `--quiet`.
 7. **Naming**: confirm the expansion ("Session ConTeXt eXtractor") and that `sctxx` has no trademark conflicts.
 
 ---

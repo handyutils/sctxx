@@ -9,6 +9,10 @@ bump and a compatibility note.
 
 ### Added
 
+- **`extract --out` warns when the artifact directory is not git-ignored.** An artifact quotes the
+  session — user messages verbatim, paths, error output — so a `git add -A` in the user's project
+  could commit and push it. `extract` now checks with `git check-ignore` (read-only, allowlisted) and
+  prints the exact command to exclude the directory. sctxx never edits your git config itself.
 - **Prior provider summaries now reach the fold as low-trust seeds** (spec §7.2). If a provider
   compacted before the chunk being folded, the fold prompt carries those summaries with their event
   numbers, framed as a hint rather than evidence — a chunk several turns after a compaction boundary

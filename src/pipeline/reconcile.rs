@@ -257,7 +257,43 @@ fn mentioned_paths(text: &str) -> Vec<String> {
 }
 
 /// The only git invocations sctxx makes (spec §10.1 allowlist).
-const ALLOWED: &[&str] = &["rev-parse", "branch", "status", "log", "cat-file"];
+const ALLOWED: &[&str] = &[
+    "rev-parse",
+    "branch",
+    "status",
+    "log",
+    "cat-file",
+    "check-ignore",
+];
+
+/// Whether git would ignore `path`.
+///
+/// `None` means "cannot tell" — not a work tree, git missing, or the command
+/// failed. Only `Some(false)` is worth warning about.
+///
+/// This is the one check made outside extraction: an artifact carries real
+/// session content, and `git add -A` in the user's project must not sweep it
+/// up. Read-only, on the same allowlist as everything else here.
+pub fn is_git_ignored(path: &Path) -> Option<bool> {
+    if !ALLOWED.contains(&"check-ignore") {
+        return None;
+    }
+    let status = Command::new("git")
+        .args(["check-ignore", "--quiet", "--"])
+        .arg(path)
+        .current_dir(path)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_PAGER", "cat")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .status()
+        .ok()?;
+    match status.code() {
+        // 0 = ignored, 1 = not ignored, anything else = no answer.
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    }
+}
 
 /// Run a read-only git command, returning `None` on any failure.
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
