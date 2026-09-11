@@ -12,6 +12,52 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The TUI preview reads the session, off the UI thread
+
+Commits: `6bb5501`
+
+**The preview pane now shows what is *in* a session.** It had been discovery metadata only — where the
+file is, not what it contains. FR-009 asks for the contents, and the contents are the deterministic
+ledgers: user turns on the active branch, live versus total events, the files the work was about, the
+last command and its status, unresolved error signatures, provider compactions, and the diagnostics.
+No LLM backend is reachable from that path; `src/tui/preview.rs` does not reference `llm` at all.
+
+The three rules that make it usable are the transferable part, and each has a test that fails without
+it. They are worth knowing before building the extraction runner (T2408) and the PTY pane (T2415),
+which need the same shape:
+
+- **A 150 ms settle delay.** `j` is a key people hold down. Without the delay a held key asks for every
+  session it passes, and each read is seconds.
+- **A generation counter, not a queue of intentions.** A superseded job is dropped *before it starts*,
+  not read and then discarded. The test gates the first read and asserts the queued one never reaches
+  the reader — the difference between a stale answer and wasted work.
+- **A bounded cache.** A cursor resting on a session must not re-read it, and returning to one should
+  be instant. Eviction uses `BTreeMap` order, since `HashMap` iteration order is not deterministic.
+
+A failed read is remembered as a failure rather than retried on every cursor pass, and the session
+stays selectable with its reason shown (FR-010). The event loop now polls on a 50 ms tick, so work that
+finished while the developer was reading appears without a key press — which is the same mechanism the
+extraction progress stream will need.
+
+**Compactions are now reported as re-anchors versus history discards.** That distinction is what
+ADR 0002 exists to preserve: "the provider tidied up" and "the early history is gone" are different
+facts to someone deciding whether to extract.
+
+**Two engineering notes for later work.**
+
+1. `Diagnostic::label()` is new on the IR. The match is exhaustive, so a new diagnostic variant is a
+   compile error there rather than a blank line in a pane.
+2. **A PTY capture cannot be trusted to prove what is on screen.** ratatui's diff does not re-emit cells
+   that are unchanged, so a word can be partly missing from the byte stream while being perfectly
+   present in the frame — `contents` was absent from a capture in which the pane was drawing it
+   correctly. The five `TestBackend` render tests in `src/tui/ui.rs` are the fix: they assert the
+   frame's *contents*, which is also what catches clipping at 80 columns.
+
+**Measured while doing this:** a warm discovery pass over the 643 real sessions on this machine takes
+**0.75 s**, against SC-002's <300 ms first paint, and it completes before the terminal is even
+initialised. Progressive fill is therefore genuinely needed, and it is now T2404 with a number attached
+rather than an assumption.
+
 ## 2026-09-11 - The TUI starts, and the LLM backends stop writing into your history
 
 Commits: `db8e53f`, `a1b9c65`, `d7363e0`, `97caaed`

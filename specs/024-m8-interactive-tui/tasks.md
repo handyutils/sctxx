@@ -42,6 +42,27 @@ task says which library function is being wrapped, not reimplemented.
     how `--llm api:` behaves without `api`
   - Covers FR-001, FR-002, and the parts of FR-003 and FR-004 that need no rail
 
+- [x] **T2405** [FR-009, FR-010, US4] The preview shows the session's contents, read off the UI thread
+  - Why: T2401's preview was discovery metadata only, and FR-009 asks what is *in* the session. The
+    obvious implementation — parse on selection — freezes the UI for seconds per cursor move, so the
+    transcript is read on a worker and the pane says so meanwhile
+  - Depends on: T2401
+  - Touches: `src/tui/preview.rs` (new), `src/tui/work.rs` (new), `src/tui/mod.rs` (settle delay and
+    bounded cache), `src/tui/ui.rs` (the contents section), `src/ir.rs` (`Diagnostic::label`)
+  - RED/GREEN proof: `cargo test --all-features --lib tui` — 33 tests, the lib suite at 238
+  - Acceptance: user turns on the active branch, live/total events, files touched busiest-first, the
+    last command with its status, unresolved error signatures, provider compactions **split into
+    re-anchors and history discards**, and the diagnostic count are all shown; a read that fails shows
+    its reason and the session stays selectable (FR-010); **no LLM backend is reachable from this
+    path** — it is the deterministic ledgers, and the module does not reference `llm`
+  - Evidence: renders against the real stores through a PTY at 150x44 on both debug and release (the
+    pane showed `12 user turns on the active branch`, `6753 live of 14151`); five `TestBackend` render
+    tests assert the frame's *contents*, which is what catches clipping
+  - Note: three rules make it usable and each has a test — a 150 ms settle delay because `j` is a held
+    key, a generation counter so a superseded read is dropped **before it starts** rather than after,
+    and a 256-entry cache so a resting cursor does not re-read
+  - Covers FR-009, FR-010, and the transferable half of FR-013's progress signalling
+
 ## Open
 
 - [ ] **T2403** [FR-003] The pane rail: SCTXX first, switch by key and by click, `?` keymap
@@ -55,30 +76,20 @@ task says which library function is being wrapped, not reimplemented.
     disappearing
   - Reference: `spec.md` "The screen" table. No croft code (FR-026)
 
-- [ ] **T2404** [FR-008, SC-002] Non-blocking discovery and progressive fill
-  - Why: the list must stay responsive with 1,000+ sessions, and today discovery completes before the
-    first paint. `list_all` is synchronous and streams, so this is a channel plus a drain, not a
-    rewrite
-  - Depends on: T2403
-  - Touches: `src/tui/mod.rs` (event loop, `crossterm::event::poll`), `src/tui/browser.rs`
+- [ ] **T2404** [FR-008, SC-002] Progressive discovery: paint before the list is complete
+  - Why: **measured, not assumed.** A warm `list_all` over the 643 real sessions on this machine takes
+    **0.75 s**, against SC-002's <300 ms first paint, and it runs to completion before the terminal is
+    even initialised. The background-work mechanism this needs already landed with T2405; what remains
+    is making the *producer* stream rather than return a `Vec`
+  - Depends on: T2405
+  - Touches: `src/adapters/discovery.rs` (an additive callback/iterator variant beside `list_all`, so
+    the CLI keeps its signature), `src/tui/mod.rs`
   - RED/GREEN proof: `cargo test --all-features --lib progressive`
   - Acceptance: first paint before every session is summarised; keys stay responsive while discovery
-    runs; a session arriving mid-filter is filtered, not appended blindly; SC-002's <300 ms warm first
-    paint is measured and recorded, or the claim is dropped
-  - Note: must not introduce a second scanner (FR-029) — the producer is `adapters::discovery::list_all`
-
-- [ ] **T2405** [FR-009, US4] Preview from the deterministic ledgers
-  - Why: T2401's preview is discovery metadata only. The point of the pane is to show what is *in* the
-    session — user turns, files touched, unresolved errors, native compactions, live/total counts —
-    which the ledgers already compute and which needs no model (FR-009)
-  - Depends on: T2403
-  - Touches: `src/tui/preview.rs` (new), reusing `pipeline::ledgers::*`
-  - RED/GREEN proof: `cargo test --all-features --lib preview`
-  - Acceptance: every field FR-009 lists is shown; a session whose file cannot be parsed shows its
-    diagnostic and stays selectable (FR-010); **no LLM backend is reachable from this path** — asserted,
-    not assumed
-  - Note: opening the transcript here is deliberate and must be bounded; T2404's "browsing costs
-    nothing" applies to the list, not to the selected preview
+    runs; a session arriving mid-filter is filtered, not appended blindly; the <300 ms warm first paint
+    is measured and recorded, or the claim is dropped
+  - Note: additive only. `list`/`list_all`/`summarize`/`resolve` stay the definition of discovery
+    (FR-029, ADR 0005) and the CLI must not change behaviour
 
 - [ ] **T2406** [FR-011, SC-004, US5] Extraction form mirroring every `extract` flag
   - Why: SC-004 requires the form and clap cannot drift. The only way to guarantee that is to derive the
