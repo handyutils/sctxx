@@ -372,6 +372,15 @@ engineering asks, which are about the artifact rather than about provenance.
   - Acceptance: L0 carries both, sourced from the fold when it ran and from the ledgers when it did not,
     inside the ~1,000-token L0 budget
 
+- [ ] **T2427** [FR-013] The fold reports progress per chunk
+  - Why: **measured.** A 40-chunk fold over a real session printed one line — `[fold] 40 chunk(s) plus a
+    final pass via cli:codex` — and then nothing for the next 30 minutes. `fold::run` takes no progress
+    callback, so neither the CLI nor the TUI can say which chunk is in flight. A user watching cannot
+    distinguish working from hung, which is the same failure as the silent one this block already fixed
+  - Acceptance: each premap batch and each fold chunk reports through the existing `Progress` channel,
+    so `[fold] chunk 12 of 40` appears as it happens; the TUI's progress pane and the CLI's stderr both
+    show it, and a cancelled run says which chunk it stopped on
+
 ## Out of scope for this block
 
 - **T2415 (an embedded terminal pane) — superseded by ADR 0006.** The launched agent is itself a
