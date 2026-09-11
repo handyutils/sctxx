@@ -9,6 +9,12 @@ bump and a compatibility note.
 
 ### Added
 
+- **npm distribution**: `npm i -g sctxx` installs the prebuilt binary for the user's platform. A
+  wrapper package declares six per-platform packages as `optionalDependencies` (each carrying `os`
+  and `cpu`), so npm installs exactly one and needs no Rust toolchain and no postinstall download.
+  Published with `--provenance`. The packages are unscoped (`sctxx-darwin-arm64` and friends) rather
+  than the `@sctxx/*` the spec proposed, because npm scopes need an organisation this account does
+  not have; the command users type is unchanged. See `npm/README.md`.
 - **`extract --max-bad-lines <RATE>`** (spec §3.1): the fraction of lines allowed to fail parsing,
   default `0.02`. It was documented and internally supported but never exposed, so a session with one
   unrecognized line type from a newer provider version failed with exit 5 and no way out. The error now

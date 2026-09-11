@@ -1,0 +1,22 @@
+{
+  "name": "sctxx-linux-x64",
+  "version": "0.1.0",
+  "description": "The sctxx binary for Linux on x64 (static). Install `sctxx` instead of this package.",
+  "license": "Apache-2.0",
+  "homepage": "https://handyutils.github.io/sctxx",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handyutils/sctxx.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/",
+    "LICENSE",
+    "NOTICE"
+  ]
+}

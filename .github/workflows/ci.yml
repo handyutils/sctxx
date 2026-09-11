@@ -68,6 +68,25 @@ jobs:
             exit 1
           fi
 
+      - name: The npm packages agree with the crate
+        run: |
+          # Seven package.json files have to agree with Cargo.toml, and the
+          # platform list with the release matrix. Manual agreement is not a
+          # plan: a drift here publishes an installable package with no binary
+          # in it, and npm versions cannot be reused.
+          node npm/check-versions.cjs
+
+      - name: The npm wrapper resolves a binary for every target it claims
+        run: |
+          # Every target in platforms.json must be one the shim maps, or
+          # `npm i -g sctxx` installs a package that cannot run.
+          shim=npm/sctxx/bin/sctxx.js
+          missing=0
+          for entry in $(node -p "Object.values(require('./npm/platforms.json')).map(v=>v.package).join('\n')"); do
+            grep -q "\"$entry\"" "$shim" || { echo "::error::$entry is not in the shim's platform map"; missing=1; }
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
   test:
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}

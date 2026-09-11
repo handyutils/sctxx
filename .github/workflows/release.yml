@@ -113,3 +113,68 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  npm:
+    name: npm
+    needs: release
+    runs-on: ubuntu-latest
+    # npm versions are immutable in the same way: a published version can be
+    # deprecated but never reused. Same human gate as crates.io.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # --provenance signs the tarballs with this job's OIDC identity
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: The npm packages agree with the crate
+        run: node npm/check-versions.cjs
+
+      # The platform packages go first: the wrapper's optionalDependencies
+      # cannot resolve until the versions they name exist on the registry.
+      - name: Publish the platform packages
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./npm/sctxx/package.json').version")
+          for target in $(node -p "Object.keys(require('./npm/platforms.json')).join('\n')"); do
+            pkg=$(node -p "require('./npm/platforms.json')['$target'].package")
+            bin=$(node -p "require('./npm/platforms.json')['$target'].binary")
+            rm -rf "/tmp/$target" && mkdir -p "/tmp/$target"
+            tar -xzf "dist/sctxx-$target.tar.gz" -C /tmp
+            mkdir -p "npm/$pkg/bin"
+            install -m 0755 "/tmp/sctxx-$target/$bin" "npm/$pkg/bin/$bin"
+            cp LICENSE NOTICE "npm/$pkg/"
+            echo "::group::$pkg $version"
+            ( cd "npm/$pkg" \
+              && npm pkg set version="$version" \
+              && npm publish --provenance --access public )
+            echo "::endgroup::"
+          done
+
+      - name: Publish the wrapper
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./npm/sctxx/package.json').version")
+          cp LICENSE NOTICE npm/sctxx/
+          cd npm/sctxx
+          npm pkg set version="$version"
+          for p in $(node -p "Object.values(require('../platforms.json')).map(v=>v.package).join('\n')"); do
+            npm pkg set "optionalDependencies.$p=$version"
+          done
+          npm publish --provenance --access public

@@ -12,7 +12,7 @@ export const hero = {
     "sctxx reads a coding-agent session transcript from disk and produces a compact, verified, " +
     "provenance-linked handoff artifact — so the next agent starts warm instead of blind.",
   facts: [
-    { label: "Install", value: "cargo install sctxx" },
+    { label: "Install", value: "npm i -g sctxx" },
     { label: "Extract", value: "sctxx extract claude:last" },
     { label: "Works offline", value: "--llm none" },
     { label: "Licence", value: "Apache-2.0" },
@@ -70,8 +70,10 @@ export const sections = [
     steps: [
       {
         title: "Install",
-        body: "A single static binary. No runtime, no daemon, no account.",
-        code: "cargo install sctxx",
+        body:
+          "One static binary, installed from npm for your platform, or built from crates.io if you " +
+          "prefer. No runtime, no daemon, no account.",
+        code: "npm i -g sctxx       # or: cargo install sctxx",
       },
       {
         title: "Install the Agent Skill",

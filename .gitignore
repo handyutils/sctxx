@@ -33,3 +33,19 @@ CLAUDE.local.md
 # website build output and dependencies
 website/node_modules/
 website/dist/
+
+# npm packaging output
+#
+# The platform packages are empty shells in git: the release workflow drops the
+# built binary, LICENSE, and NOTICE into them before publishing. Committing the
+# binaries would put a fresh 2.6 MB copy in every release commit, and the
+# licence copies would drift from the files they duplicate.
+/npm/sctxx-*/bin/
+/npm/sctxx-*/LICENSE
+/npm/sctxx-*/NOTICE
+/npm/sctxx/LICENSE
+/npm/sctxx/NOTICE
+**/*.tgz
+
+# release build output (the workflow assembles tarballs here)
+/dist/

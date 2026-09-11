@@ -1064,19 +1064,31 @@ For all flags see references/cli.md. For the artifact format see references/arti
 
 Pattern: one wrapper package plus per-platform binary packages via `optionalDependencies` (works behind corporate mirrors and offline caches; no postinstall download).
 
+**Implemented 2026-09-11** — see [`npm/README.md`](../npm/README.md). The packages are **unscoped**,
+deviating from the scoped plan below: npm scopes need an organisation, and the publishing account has
+no `sctxx` org. The user-facing command is unchanged. Moving to the scope later is a rename plus a
+deprecation notice.
+
 ```text
-sctxx                          # package.json: bin → bin/sctxx.js; optionalDependencies below
-@sctxx/cli-linux-x64           # os: ["linux"], cpu: ["x64"], libc: musl-static binary
-@sctxx/cli-linux-arm64
-@sctxx/cli-darwin-x64
-@sctxx/cli-darwin-arm64
-@sctxx/cli-win32-x64
-@sctxx/cli-win32-arm64
+sctxx                    # package.json: bin → bin/sctxx.js; optionalDependencies below
+sctxx-linux-x64          # os: ["linux"], cpu: ["x64"], musl-static binary (no `libc` field:
+sctxx-linux-arm64        #   a static musl build runs on glibc too, and `libc: musl` would skip it)
+sctxx-darwin-x64
+sctxx-darwin-arm64
+sctxx-win32-x64
+sctxx-win32-arm64
 ```
 
 `bin/sctxx.js` resolves the installed platform package with `require.resolve`, then `spawnSync` the binary with inherited stdio and forwards the exit code; if none is installed it prints the exact `cargo install` / GitHub download fallback. Published with `npm publish --provenance` from GitHub Actions (OIDC), each tarball includes `LICENSE` and `NOTICE`. Usage: `npx sctxx extract …`.
 
-**Name reservation (do first)**: crate `sctxx` and npm `sctxx` were unregistered when checked on 2026-09-10; also create the npm org `sctxx` for the scoped packages, and the GitHub org/repo.
+The platform packages ship no `exports` map, because the shim resolves `<package>/package.json`
+directly. `node npm/check-versions.cjs` runs in CI and fails on version drift between the seven
+`package.json` files and `Cargo.toml`, on a platform package that is missing, and on a target the
+release matrix does not build.
+
+**Name reservation**: crate `sctxx` and npm `sctxx` were unregistered when checked on 2026-09-10 and
+again on 2026-09-11; the GitHub org/repo exists. The npm org `sctxx` was not created — see the
+deviation above.
 
 ### 14.4 Versioning
 

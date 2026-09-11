@@ -124,9 +124,14 @@ The fold is optional and works with whatever you already have.
 ## Install
 
 ```sh
-cargo install sctxx            # from crates.io
-cargo binstall sctxx           # prebuilt binary
+npm i -g sctxx                 # prebuilt binary for your OS, no toolchain needed
+cargo install sctxx            # builds from crates.io
+cargo binstall sctxx           # prebuilt binary via cargo
 ```
+
+The npm package is a shim: it depends on a per-platform package containing the binary, so `npm i -g
+sctxx` needs no Rust toolchain. On an unsupported platform it says so and points at `cargo install`
+rather than failing the install. See [`npm/README.md`](npm/README.md).
 
 Or download a binary from [Releases](https://github.com/handyutils/sctxx/releases).
 
