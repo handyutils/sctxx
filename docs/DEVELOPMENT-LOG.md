@@ -12,6 +12,52 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The TUI can extract, and the form is clap's own definition
+
+Commits: `ff97084`
+
+**`sctxx --tui` now closes the loop**: find a session, understand it, extract it. `e` opens an
+extraction form, `enter` runs it, progress streams into the pane stage by stage, and the result reports
+every file written, the handoff path, and the CLI's own git warning.
+
+**The form is not a list of fields — that is the part worth remembering.** It is clap's definition of
+`extract`, read back with `ExtractArgs::command()`, and submitting goes back through clap with
+`ExtractArgs::parse_argv()`. So the form cannot gain a control the CLI does not have, cannot lose one it
+does, and cannot accept a value the CLI would reject, because clap decides all three. Presentation is
+derived too: clap's `SetTrue` makes a toggle and `get_possible_values` makes a picker, so there is no
+table anywhere mapping a field to a widget. Two tests hold the line: one asserts the form's fields
+equal clap's arguments exactly, and one asserts `reference` is the only positional — so a *new*
+positional fails the test instead of silently disappearing from the UI.
+
+Making that work needed the CLI's value spaces to belong to clap rather than to Rust, so `--mode`,
+`--format`, `--redact` and `--progress` now declare `value_parser`. Side effect worth having: a bad
+`--format` used to be caught *after* a full extraction; now it is caught before any work starts.
+
+**Two rules moved into the library so the CLI and the TUI cannot disagree.**
+
+- `pipeline::write_destination` owns what a destination means — a directory gets the full set, a
+  `.md`/`.json` path gets that one file — and returns the handoff path plus everything written. The
+  CLI's writer is now four lines. `git_track_warning` returns the CLI's warning as a string instead of
+  printing it, so the pane shows the same sentence rather than a copy of it (FR-015).
+- `ExtractOptions` is built by `ExtractArgs::options()`, shared by `run()` and the form, so a form
+  submission and a command line are validated by exactly the same code.
+
+**Two deliberate asymmetries, both of which the code states rather than hides.**
+
+1. An extraction is **not** superseded the way a preview is. A preview is speculative and `j` is a held
+   key, so it is dropped when it goes stale; an extraction is started by an explicit keypress and its
+   progress is the thing the developer is watching.
+2. It **cannot be cancelled** once running. T2408 keeps only that half, and the pane promises nothing
+   it cannot do. Cancelling means threading a flag through `pipeline::extract`.
+
+A relative destination resolves against the session's project, not against wherever sctxx was launched
+— that is what `.sctxx/` means to someone who opened the TUI from somewhere else.
+
+**Tests.** 50 TUI tests, 336 on `--all-features`, 275 on `--no-default-features`. The one that matters
+is `running_the_form_writes_a_handoff`: it opens the form on a fixture, sets `--llm none`, presses run,
+and asserts a real `handoff.md` with provenance pointers is on disk. The `write_destination` refactor
+also gained a CLI test for the named-file destination, which nothing had covered before.
+
 ## 2026-09-11 - The TUI preview reads the session, off the UI thread
 
 Commits: `6bb5501`

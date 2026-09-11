@@ -63,6 +63,39 @@ task says which library function is being wrapped, not reimplemented.
     and a 256-entry cache so a resting cursor does not re-read
   - Covers FR-009, FR-010, and the transferable half of FR-013's progress signalling
 
+- [x] **T2406** [FR-011, SC-004, US5] The extraction form is clap's own definition of `extract`
+  - Why: SC-004 requires the form and clap cannot drift, and the only way to guarantee that is to stop
+    restating the CLI. The form reads `ExtractArgs::command()` and submits through
+    `ExtractArgs::parse_argv()`, so clap decides which fields exist and which values are legal
+  - Depends on: T2401
+  - Touches: `src/tui/form.rs` (new), `src/cli/extract.rs` (`command`, `parse_argv`, `options`),
+    `src/cli/mod.rs` (the module is crate-visible for this reason only)
+  - RED/GREEN proof: `cargo test --all-features --lib tui::form` — 12 tests, including
+    `every_flag_the_cli_has_is_a_field_and_nothing_else_is`
+  - Acceptance: **stronger than specified.** The acceptance asked for the FR-011 flags plus a test that
+    the two lists agree; instead the list is not written down twice at all. Presentation is derived
+    too — clap's `SetTrue` makes a toggle and `get_possible_values` makes a picker, so there is no
+    table mapping a field to a widget
+  - Note: `--mode`, `--format`, `--redact` and `--progress` now carry `value_parser`, which makes clap
+    their single source of truth **and** catches a bad `--format` before the extraction instead of
+    after it. `the_only_argument_without_a_flag_is_the_session_reference` fails if a new positional is
+    added, so one cannot silently vanish from the UI
+
+- [x] **T2409** [FR-014, FR-015] Destination, written paths, and the CLI's own git warning
+  - Why: the CLI's "this directory is not ignored by git" warning must appear in the pane too, and the
+    surest way is for the pane to call the CLI's function rather than repeat its sentence
+  - Depends on: T2405
+  - Touches: `src/pipeline/mod.rs` (`Written`, `write_destination`), `src/cli/extract.rs`
+    (`git_track_warning` now returns the message; `write_output` is four lines), `src/tui/{work,ui}.rs`
+  - RED/GREEN proof: `cargo test --all-features --lib a_finished_run_says_where_the_artifact_went` and
+    `cargo test --all-features --test cli extract_to_a_named_file_writes_only_that_file`
+  - Acceptance: directory (five files), a single `.md`/`.json`, and any path are all reachable; the pane
+    reports every written path and the handoff path; the git warning is **the CLI's function**, not its
+    wording copied, which is stronger than the constant the acceptance asked for
+  - Note: `write_destination` moved the directory-vs-file rule into the library so the CLI and the TUI
+    cannot disagree about what a destination means, and a new CLI test covers the named-file branch
+    that nothing had covered before. A relative destination resolves against the session's project
+
 ## Open
 
 - [ ] **T2403** [FR-003] The pane rail: SCTXX first, switch by key and by click, `?` keymap
@@ -91,18 +124,6 @@ task says which library function is being wrapped, not reimplemented.
   - Note: additive only. `list`/`list_all`/`summarize`/`resolve` stay the definition of discovery
     (FR-029, ADR 0005) and the CLI must not change behaviour
 
-- [ ] **T2406** [FR-011, SC-004, US5] Extraction form mirroring every `extract` flag
-  - Why: SC-004 requires the form and clap cannot drift. The only way to guarantee that is to derive the
-    form from the clap definition rather than restating it
-  - Depends on: T2403
-  - Touches: `src/tui/form.rs` (new), `src/cli/mod.rs` (expose the `extract` command for enumeration)
-  - RED/GREEN proof: `cargo test --all-features --lib the_form_matches_clap`
-  - Acceptance: `--mode`, `--llm`, `--budget`, `--tail`, `--focus`, `--since-compact`,
-    `--max-bad-lines`, `--redact`, `--include-sidechains`, `--no-verify`, `--layers` all present with
-    today's defaults; the test fails if a flag is added to clap and not to the form, and if the form
-    grows a control the CLI does not have
-  - Note: this is the task that makes "no TUI-only capability" (FR-025) checkable rather than aspirational
-
 - [ ] **T2407** [FR-012, US5] Backend availability in the form, probed the way `doctor` probes it
   - Why: the choice should be informed rather than guessed, and `--llm none` must always be offered
     because it always works
@@ -112,26 +133,25 @@ task says which library function is being wrapped, not reimplemented.
   - Acceptance: an unavailable backend is listed as unavailable **with its reason**, never hidden;
     `none` is always present; the same probe function serves `doctor` and the pane, so the two answers
     cannot disagree
+  - Note: T2406 left `--llm` a text field, which is honest but unhelpful — the value space is dynamic
+    (`cli:<agent>`, `api:<provider>/<model>`), so clap cannot enumerate it and nothing yet shows what
+    this machine actually has. That is this task
 
-- [ ] **T2408** [FR-013] Run the extraction with streaming progress and working cancellation
-  - Why: extraction is the block's first long-running action, and a TUI that blocks during it is worse
+- [ ] **T2408** [FR-013] Cancel a running extraction, and let a long one be interrupted
+  - **Half done.** The run itself and its progress landed with T2406: `enter` runs the pipeline on the
+    worker, every stage the pipeline reports reaches the pane, the last few are kept as a short log, a
+    pipeline error is shown as a message rather than a panic, and `running_the_form_writes_a_handoff`
+    exercises the whole path offline against a fixture.
+  - **Not done: cancellation.** Once the pipeline is running it cannot be interrupted; the pane says
+    nothing it cannot do, and the form is left intact so the run can be repeated. Cancelling means
+    threading a flag through `pipeline::extract`, which is the real content of this task
+  - Why: a `--llm cli:claude` extraction can take minutes, and a TUI that cannot be stopped is worse
     than the CLI it replaces
-  - Depends on: T2407
-  - Touches: `src/tui/run.rs` (new), reusing `pipeline::extract` and its stage progress
-  - RED/GREEN proof: `cargo test --all-features --lib progress_stages`
-  - Acceptance: `parse`, `ledgers`, `segment`, `fold`, `verify`, `since-compact` progress reaches the
-    pane; cancellation leaves no temp state behind and the process exits cleanly; a pipeline error is
-    shown in the pane with its exit code, not a panic
-
-- [ ] **T2409** [FR-014, FR-015] Destination selection, written paths, and the git-ignore warning
-  - Why: the CLI's non-ignored-output-directory warning must appear here too — the same rule and the
-    same wording, not a second implementation of it
-  - Depends on: T2408
-  - Touches: `src/tui/run.rs`, reusing `pipeline::reconcile::is_git_ignored` and the CLI's warning text
-  - RED/GREEN proof: `cargo test --all-features --lib reuse_the_cli_warning`
-  - Acceptance: directory (five files), single `.md`/`.json`, and "handoff" all reachable; the pane
-    reports every written path; the warning is the CLI's string, asserted by comparing against the
-    constant the CLI uses
+  - Depends on: T2406 (done)
+  - Touches: `src/pipeline/mod.rs` (a cancellation check inside the stage loop), `src/tui/work.rs`
+  - RED/GREEN proof: `cargo test --all-features --lib cancelling_leaves_nothing_behind`
+  - Acceptance: a running extraction can be stopped from the pane; no partial artifact is left behind;
+    the process stays clean; the existing progress tests keep passing
 
 - [ ] **T2410** [FR-016, FR-016a, FR-023] Canvas pane: read the artifact in place, L0–L3, `expand`
   - Why: FR-016's premise is that a developer who has to leave the TUI to read the artifact will not
