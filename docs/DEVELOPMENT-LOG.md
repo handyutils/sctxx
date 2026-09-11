@@ -12,6 +12,49 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - 0.3.0, and an artifact that had to be tested on a real session
+
+Commits: `b5d9ec4`, `bd09932` · Release: tag `v0.3.0`
+
+**0.3.0 is published** to crates.io, npm and GitHub Releases, and the release was verified the way the
+last one was: the published crate returns 200, all seven npm packages carry the version, and
+`npm install sctxx@0.3.0` in a scratch directory runs `sctxx 0.3.0` with the new `handoff` subcommand in
+its help.
+
+It carries the two changes that were worth a minor: **`--llm` defaults to `none`** (ADR 0007 — the old
+default was ~813,000 tokens and 81 model calls on a large session, silently), and **`sctxx handoff`** —
+the main line for a program, printing `{program, argv, cwd, artifact}` for a caller to spawn, sharing
+`ExtractArgs::deterministic` with the TUI's `h` so the two cannot disagree about what a handoff costs.
+
+**The interesting work was testing against the session the review used**: 235 MB, 103,757 events, 274
+user turns, written repeatedly to the reviewer's own `.sctxx` until the artifact was worth reading. Six
+runs, six real defects:
+
+1. A "next action" was a single **2,808-character** `cat >> … EOF` heredoc — 42% of L0, quoting a script
+   a reader cannot act on.
+2. The next action after that came from `npm view`, whose newest failure was **evt 22,372 of 103,757**.
+   A failure 80,000 events before the session stopped is not something to do next.
+3. `stale: 100` in the header was 86 missing files **plus 14 commits no longer reachable from HEAD** —
+   the history had been rewritten, and only the files had a finding.
+4. 86 "cited files are gone" were mostly npm debug logs, because the session *read* them.
+5. The derived current step was the last command, which on a session that ended by writing a changelog
+   was a heredoc. It now prefers the agent's own plan: "wire TrustTier::Sandboxed into
+   ModuleHost::spawn" is a state; "`tail -60 docs/DEVELOPMENT-LOG.md`" is not.
+6. Stack traces quoted with their indentation read as damage.
+
+**L0 went from 1,660 tokens to 1,028** against the ~1,000 the review set, and now leads with four real
+findings before the goal.
+
+**And the half that costs tokens was verified too.** Claude's own backend was rate-limited (which is what
+produced the empty artifact the review examined, and why the health gate exists), so the fold was run
+through `--llm cli:codex` over the window since the provider's last compaction: 19.8 s, 4 operations
+accepted, `semantic: ok`. It produced exactly what the deterministic layer cannot — a current step
+naming the user's last request, and three next actions with `[evt 103727]` provenance. The comparison is
+in the CHANGELOG's reasoning and the point stands: **the deterministic artifact is useful, and the fold
+is what turns "the last command was tail -60" into "push the progress, re-point acryl-cli onto
+createAcrylEngineHost, run the cold-start test".** The fold has to earn that, and ticket 16 now says how
+to measure whether it does.
+
 ## 2026-09-11 - A silent failure, and an audit that corrected our own story
 
 Commits: `05d0308`
