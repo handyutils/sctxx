@@ -16,6 +16,7 @@
 //! therefore behaves as `standard` and says so on stderr.
 
 pub mod artifact;
+pub mod finalize;
 pub mod fold;
 pub mod ledgers;
 pub mod mask;
@@ -239,6 +240,8 @@ pub struct Extraction {
     pub plan: segment::Plan,
     pub state: fold::state::FoldState,
     pub reconciliation: reconcile::Reconciliation,
+    /// The reconciled end state: what the evidence says is true *now*.
+    pub end_state: finalize::EndState,
     pub report: Report,
     pub llm_label: String,
 }
@@ -287,6 +290,7 @@ impl Extraction {
             layers: options.layers,
             mode: options.mode.label(),
             llm: self.llm_label.clone(),
+            end_state: Some(self.end_state.clone()),
             // The artifact says whether the model-written layer is there, so a
             // reader never has to infer it from absent sections.
             semantic: self.report.semantic_state,
@@ -602,6 +606,27 @@ pub fn extract_interruptible(
         return Err(Error::Contradicted(reconciliation.contradictions()));
     }
 
+    // The end state, reconciled against the evidence. Runs last, after the fold
+    // and after the repository check, so that what L0 presents as current really
+    // is — and so that an action a later command satisfied is not handed on as
+    // pending work.
+    let end_state = finalize::run(&mut state, &ledgers, &reconciliation);
+    for resolution in &end_state.resolutions {
+        progress(
+            "finalize",
+            &format!(
+                "{} was satisfied by `{}` (evt {})",
+                resolution.id, resolution.command, resolution.evt
+            ),
+        );
+    }
+    for finding in &end_state.findings {
+        progress(
+            "finalize",
+            &format!("{}: {}", finding.kind.label(), finding.text),
+        );
+    }
+
     let tail_rows = plan.tail.len();
     let tail_tokens: usize = rows[plan.tail.clone()].iter().map(|row| row.tokens).sum();
     let raw_tokens = session
@@ -647,6 +672,7 @@ pub fn extract_interruptible(
     };
 
     Ok(Extraction {
+        end_state,
         session,
         ledgers,
         rows,

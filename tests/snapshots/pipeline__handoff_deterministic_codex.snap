@@ -26,6 +26,8 @@ tokens: <normalized>
 
 **Goal** (from the first user message, not model-inferred): Port the tiered input budgeting from the memories crate. Keep the crate publishable. [evt 1]
 
+**Current step** — derived (no model ran), from the agent's own plan: add the PriorSummary tier [evt 8]
+
 **Next actions** (derived from the ledgers, not model-inferred)
 1. add the PriorSummary tier (plan item, in_progress) [evt 8]
 
@@ -37,7 +39,20 @@ tokens: <normalized>
 
 ## L1 · Items
 
-### Files touched
+### Active workset
+
+**Plan at evt 8**
+- add the PriorSummary tier (in_progress) [evt 8]
+
+**Most recently touched**
+- `src/pipeline/ledgers.rs` — 2 edit(s), last evt 5 [evt 5]
+- `src/pipeline/tail.rs` — 2 edit(s), last evt 5 [evt 5]
+
+**Latest test**: `cargo test --all-features` — ok [evt 10]
+**Unresolved errors**: none
+
+
+#### Files touched (the full ledger)
 
 | path | ops | last evt | status |
 |---|---|---|---|

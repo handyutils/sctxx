@@ -28,11 +28,13 @@ tokens: <normalized>
 
 **Last user request**: ok now make tier 3 actually sandboxed [evt 12]
 
+**Current step** — derived (no model ran), from the agent's own plan: wire TrustTier::Sandboxed into ModuleHost::spawn [evt 5]
+
 **Next actions** (derived from the ledgers, not model-inferred)
 1. wire TrustTier::Sandboxed into ModuleHost::spawn (plan item, in_progress) [evt 5]
 2. tests for tier 3 (plan item, pending) [evt 5]
 3. re-run `pnpm vitest run packages/ext-engine` — its last run FAILED [evt 14]
-4. resolve `c5e689ad56e4` (×2) — FAIL packages/ext-engine/host.test.ts   TypeError: Cannot read propert…7 tokens truncated…capabilities')     at ModuleHost.spawn (src/host/module-host.ts:41:22) [evt 10–15]
+4. resolve `c5e689ad56e4` (×2) — FAIL packages/ext-engine/host.test.ts TypeError: Cannot read propertie…6 tokens truncated…ng 'capabilities') at ModuleHost.spawn (src/host/module-host.ts:41:22) [evt 10–15]
 
 **Verify first**
 - `git status`
@@ -42,7 +44,21 @@ tokens: <normalized>
 
 ## L1 · Items
 
-### Files touched
+### Active workset
+
+**Plan at evt 5**
+- wire TrustTier::Sandboxed into ModuleHost::spawn (in_progress) [evt 5]
+- tests for tier 3 (pending) [evt 5]
+
+**Most recently touched**
+- `src/host/module-host.ts` — 1 edit(s), last evt 7 [evt 7]
+
+**Latest test**: `pnpm vitest run packages/ext-engine` — FAILED [evt 14]
+**Unresolved errors**: 1
+- FAIL packages/ext-engine/host.test.ts TypeError: Cannot…13 tokens truncated…s') at ModuleHost.spawn (src/host/module-host.ts:41:22) (×2) [evt 15]
+
+
+#### Files touched (the full ledger)
 
 | path | ops | last evt | status |
 |---|---|---|---|
@@ -52,7 +68,7 @@ tokens: <normalized>
 - `pnpm vitest run packages/ext-engine` → **FAILED** [evt 14]
 
 ### Unresolved errors
-- `c5e689ad56e4` ×2 — FAIL packages/ext-engine/host.test.ts   TypeError: Cannot read properties of undefined (reading 'capabilities')     at ModuleHost.spawn (src/host/module-host.ts:41:22) [evt 10–15]
+- `c5e689ad56e4` ×2 — FAIL packages/ext-engine/host.test.ts TypeError: Cannot read properties of undefined (reading 'capabilities') at ModuleHost.spawn (src/host/module-host.ts:41:22) [evt 10–15]
 
 ### Plan as last published [evt 5]
 - [x] define the manifest schema (completed)

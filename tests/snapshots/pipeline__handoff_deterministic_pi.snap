@@ -28,6 +28,8 @@ tokens: <normalized>
 
 **Last user request**: the second section is being swallowed, look at the delimiter [evt 6]
 
+**Current step** — derived (no model ran): `pnpm test sections` was the last real command — FAILED [evt 5]
+
 **Next actions** (derived from the ledgers, not model-inferred)
 1. re-run `pnpm test sections` — its last run FAILED [evt 5]
 2. resolve `9b9d7fe86850` (×1) — AssertionError: expected 2 sections, got 1 [evt 5–5]
@@ -40,7 +42,17 @@ tokens: <normalized>
 
 ## L1 · Items
 
-### Files touched
+### Active workset
+
+**Most recently touched**
+- `src/sections.ts` — 1 edit(s), last evt 9 [evt 9]
+
+**Latest test**: `pnpm test sections` — FAILED [evt 5]
+**Unresolved errors**: 1
+- AssertionError: expected 2 sections, got 1 (×1) [evt 5]
+
+
+#### Files touched (the full ledger)
 
 | path | ops | last evt | status |
 |---|---|---|---|

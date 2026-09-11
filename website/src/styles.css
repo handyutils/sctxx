@@ -1066,6 +1066,51 @@ footer a {
   }
 }
 
+/* The architecture figure. The diagram is wide, so it scales to the column
+   rather than overflowing it, and keeps a light card behind it so the dark
+   theme does not invert line art that was drawn on white. */
+.architecture {
+  margin: 8px 0 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  overflow-x: auto;
+}
+
+.architecture img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.architecture figcaption {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: #4a5751;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+:root[data-theme="dark"] .architecture {
+  /* Line art on white: keep it readable instead of inverting it. */
+  background: #f4f7f5;
+  border-color: #3a4a43;
+}
+
+:root[data-theme="dark"] .architecture figcaption {
+  color: #3c4a44;
+  border-top-color: #cbd6d1;
+}
+
+@media (max-width: 480px) {
+  .architecture {
+    padding: 12px;
+  }
+}
+
 @media (max-width: 480px) {
   .version {
     display: none;

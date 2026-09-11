@@ -84,6 +84,9 @@ pub struct RenderOptions {
     pub llm: String,
     /// Whether the model-written layer is present. Rendered, not assumed.
     pub semantic: crate::pipeline::SemanticState,
+    /// The reconciled end state, when there is one. Owned because the
+    /// artifact is rendered twice: once to measure it, once to emit it.
+    pub end_state: Option<crate::pipeline::finalize::EndState>,
     pub redact: RedactMode,
     /// Tokens the masked view of the whole session costs. Known only to the
     /// pipeline, which is why it is passed in rather than recomputed here.
@@ -101,6 +104,7 @@ impl Default for RenderOptions {
             mode: "standard",
             llm: "none".to_string(),
             semantic: crate::pipeline::SemanticState::NotRequested,
+            end_state: None,
             redact: RedactMode::Default,
             masked_tokens: 0,
             artifact_tokens: 0,
@@ -256,6 +260,10 @@ fn posix(path: &std::path::Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// Below this artifact budget, the ledger is short enough that a workset would
+/// only duplicate it.
+const WORKSET_MIN_BUDGET: usize = 1_000;
+
 /// L0: what the next agent must know before touching anything.
 fn render_brief(artifact: &Artifact<'_>) -> String {
     let state = artifact.state;
@@ -271,6 +279,18 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
         out.push('\n');
     }
 
+    // What the evidence says that the state does not, before the goal: a reader
+    // who acts on a stale goal wastes the whole session.
+    if let Some(end) = artifact.options.end_state.as_ref()
+        && !end.findings.is_empty()
+    {
+        out.push_str("**Before you act — the evidence contradicts this handoff:**\n");
+        for finding in &end.findings {
+            out.push_str(&format!("- *{}*: {}\n", finding.kind.label(), finding.text));
+        }
+        out.push('\n');
+    }
+
     let mut budget = BRIEF_BUDGET;
 
     let push = |out: &mut String, text: String, budget: &mut usize| {
@@ -282,32 +302,39 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
         out.push_str(&text);
     };
 
-    match state.active_of(ItemKind::Goal).first() {
-        Some(goal) => push(
+    // The first request is provenance, not the active objective: on a ten-day
+    // session "onboard yourself to this project" says where the work started,
+    // not what it is now. When the fold has evolved a goal, both are shown and
+    // labelled for what they are.
+    let goals = state.active_of(ItemKind::Goal);
+    let folded_goal = goals.first();
+    if let Some(first) = ledgers.user_messages.first() {
+        let label = if folded_goal.is_some() {
+            "**Original request** (where the work started)"
+        } else {
+            "**Goal** (from the first user message, not model-inferred)"
+        };
+        push(
             &mut out,
             format!(
-                "**Goal** ({}): {} {}\n\n",
+                "{label}: {} [evt {}]\n\n",
+                one_line(&first.text, 300),
+                first.evt
+            ),
+            &mut budget,
+        );
+    }
+    if let Some(goal) = folded_goal {
+        push(
+            &mut out,
+            format!(
+                "**Active goal** ({}): {} {}\n\n",
                 goal.id,
                 goal.text,
                 goal.provenance()
             ),
             &mut budget,
-        ),
-        // Deterministic mode has no fold, so the first human message is the
-        // most honest statement of intent available.
-        None => {
-            if let Some(first) = ledgers.user_messages.first() {
-                push(
-                    &mut out,
-                    format!(
-                        "**Goal** (from the first user message, not model-inferred): {} [evt {}]\n\n",
-                        one_line(&first.text, 300),
-                        first.evt
-                    ),
-                    &mut budget,
-                );
-            }
-        }
+        );
     }
 
     // The last thing the human asked is the sharpest statement of intent the
@@ -326,8 +353,26 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
         );
     }
 
-    if let Some(step) = state.active_of(ItemKind::CurrentStep).first() {
+    // The provider's own compaction summary is often the highest-value semantic
+    // object in a long session, and it is also the least trustworthy: it is the
+    // provider's account of what happened, written by a model, frozen at a point
+    // in time. Shown in L0 with its pointer and that label, so a reader can use
+    // it and check it instead of never seeing it.
+    if let Some(summary) = ledgers.prior_summaries.last() {
         push(
+            &mut out,
+            format!(
+                "**Provider summary** (low trust \u{2014} written by a model, not evidence; verify \
+                 against the repository and the recency tail) [evt {}]: {}\n\n",
+                summary.evt,
+                one_line(&summary.text, 400)
+            ),
+            &mut budget,
+        );
+    }
+
+    match state.active_of(ItemKind::CurrentStep).first() {
+        Some(step) => push(
             &mut out,
             format!(
                 "**Current step** ({}): {} {}\n\n",
@@ -336,12 +381,32 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
                 step.provenance()
             ),
             &mut budget,
-        );
+        ),
+        // No folded step: derive one from the ledger rather than leave the
+        // reader without an end state, and say where it came from.
+        None => {
+            if let Some(derived) = artifact
+                .options
+                .end_state
+                .as_ref()
+                .and_then(|end| end.derived_step.as_ref())
+            {
+                push(
+                    &mut out,
+                    format!(
+                        "**Current step** — {} [evt {}]\n\n",
+                        derived.text, derived.evt
+                    ),
+                    &mut budget,
+                );
+            }
+        }
     }
 
     let next_actions = state.active_of(ItemKind::NextAction);
     if !next_actions.is_empty() {
         let mut block = String::from("**Next actions**\n");
+        let _ = &block;
         for (index, item) in next_actions.iter().enumerate() {
             block.push_str(&format!(
                 "{}. ({}) {} {}\n",
@@ -353,9 +418,27 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
         }
         block.push('\n');
         push(&mut out, block, &mut budget);
-    } else if let Some(block) = ledger_next_actions(ledgers) {
+    } else if let Some(block) = ledger_next_actions(artifact) {
         // No fold ran, so derive next actions from the ledgers and label them
         // as derived. A deterministic artifact still has to be actionable.
+        push(&mut out, block, &mut budget);
+    }
+
+    // Work the session already finished. Without this a receiving agent redoes
+    // it, which is the failure the end-state pass exists to prevent.
+    if let Some(end) = artifact.options.end_state.as_ref()
+        && !end.resolutions.is_empty()
+    {
+        let mut block = String::from("**Already done** (a later command satisfied these)\n");
+        for resolution in &end.resolutions {
+            block.push_str(&format!(
+                "- {} \u{2014} `{}` succeeded [evt {}]\n",
+                one_line(&resolution.text, 160),
+                resolution.command,
+                resolution.evt
+            ));
+        }
+        block.push('\n');
         push(&mut out, block, &mut budget);
     }
 
@@ -458,9 +541,74 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
 
 /// Next actions a reviewer could read straight off the ledgers: the plan item
 /// that was in progress, and any command whose last run failed.
-fn ledger_next_actions(ledgers: &Ledgers) -> Option<String> {
+#[cfg(test)]
+mod action_quality_tests {
+    use super::*;
+
+    #[test]
+    fn a_script_is_not_a_next_action() {
+        // This is the 2,808-character line that was 42% of a real L0.
+        let heredoc =
+            "cat >> docs/DEVELOPMENT-LOG.md << 'EOF' ## 2026-09-11 - fix: something very long";
+        assert!(
+            !is_runnable(heredoc),
+            "a heredoc writes a file; it is not an action"
+        );
+        assert!(!is_runnable("first line\nsecond line"));
+        assert!(!is_runnable(&"x".repeat(300)));
+        assert!(is_runnable("pnpm vitest run packages/ext-engine"));
+    }
+
+    #[test]
+    fn the_recency_window_keeps_the_end_of_a_long_session() {
+        // A failure at evt 22,372 of 103,757 is not something to do next.
+        let window = recent_window(103_757);
+        assert!(window > 98_000, "{window}");
+        assert!(22_372 < window);
+        assert!(103_000 > window);
+        // A short session still has a floor, so the window is never empty.
+        assert_eq!(recent_window(100), 0);
+    }
+
+    #[test]
+    fn whitespace_runs_are_collapsed_when_quoting() {
+        // A stack trace quoted with its indentation reads as damage.
+        let quoted = one_line(
+            "Error: not registered     at Object.mount\n  next line",
+            200,
+        );
+        assert_eq!(quoted, "Error: not registered at Object.mount next line");
+    }
+}
+
+/// The first event that counts as "near the end of the session".
+///
+/// Five percent, with a floor, so a short session still has a window.
+fn recent_window(events: usize) -> u32 {
+    let five_percent = (events / 20) as u32;
+    (events as u32).saturating_sub(five_percent.max(500))
+}
+
+/// Whether a recorded command could be handed back as something to re-run.
+///
+/// One line, and short enough to read. A multi-line command is a script, and a
+/// very long one is usually a heredoc that wrote a file — both belong in the
+/// ledger, neither is a next action.
+fn is_runnable(command: &str) -> bool {
+    !command.trim().is_empty()
+        && !command.contains('\n')
+        // A heredoc marker makes it a script even when the ledger collapsed the
+        // newlines, which is how the 2,800-character one arrived.
+        && !command.contains("<<")
+        && command.chars().count() <= 200
+}
+
+fn ledger_next_actions(artifact: &Artifact<'_>) -> Option<String> {
+    let ledgers = artifact.ledgers;
     let mut actions: Vec<String> = Vec::new();
 
+    // Six plan items, six files, two errors: the workset is a starting point, and
+    // everything it leaves out is in the full ledger immediately below it.
     if let Some(plan) = &ledgers.plan {
         for item in plan
             .items
@@ -473,14 +621,47 @@ fn ledger_next_actions(ledgers: &Ledgers) -> Option<String> {
             ));
         }
     }
-    for command in ledgers
+    // A failed *command* is a next action only when it is a command. On a real
+    // session the newest failures are heredocs — a 2,800-character `cat >> … EOF`
+    // script — and quoting one at full length costs more of L0 than everything
+    // else in it put together while telling a reader nothing they can re-run.
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // "The last run of this command failed" is only a next action if that run was
+    // *near the end*. On a 274-turn session the newest failure of `npm view` was
+    // 80,000 events before the session stopped, and offering it as something to do
+    // next sends a reader into the middle of a week-old session.
+    let recent_after = recent_window(artifact.session.events.len());
+    let mut failures: Vec<&crate::pipeline::ledgers::CommandRecord> = ledgers
         .last_command_status()
-        .iter()
+        .into_iter()
         .filter(|command| command.failed())
+        .filter(|command| command.evt >= recent_after)
+        .filter(|command| is_runnable(&command.normalized))
+        .collect();
+    // A failing test or build is a next action; a failing `grep` is a dead end
+    // the session already walked past. Rank by what the failure was in.
+    failures.sort_by_key(|command| {
+        (
+            match command.category {
+                crate::pipeline::ledgers::CmdCategory::Test => 0,
+                crate::pipeline::ledgers::CmdCategory::Build => 1,
+                crate::pipeline::ledgers::CmdCategory::Lint => 2,
+                crate::pipeline::ledgers::CmdCategory::Run => 3,
+                crate::pipeline::ledgers::CmdCategory::PackageManager => 4,
+                _ => 5,
+            },
+            std::cmp::Reverse(command.evt),
+        )
+    });
+    for command in failures
+        .into_iter()
+        .filter(|command| seen.insert(command.normalized.clone()))
+        .take(3)
     {
         actions.push(format!(
             "re-run `{}` \u{2014} its last run FAILED [evt {}]",
-            command.normalized, command.evt
+            one_line(&command.normalized, 90),
+            command.evt
         ));
     }
     for error in ledgers.unresolved_errors().iter().take(2) {
@@ -591,15 +772,156 @@ fn item_line(item: &Item) -> String {
     line
 }
 
+/// The active workset: what a receiving agent needs to touch first.
+///
+/// The ledgers are forensic — every file, every error, every command — and a
+/// history of 548 touched files is not the thing an agent needs before it starts.
+/// This is the small, current subset: what the work *is*, what is open right now,
+/// and what to run. The full ledgers follow it, and stay retrievable.
+fn render_workset(artifact: &Artifact<'_>) -> String {
+    // A summary only helps when there is something to summarise. Under a very
+    // small budget the full ledger below is already short, so the workset would
+    // be a second copy of it — and `--budget` is a promise about the artifact's
+    // size, not a suggestion.
+    if artifact.options.budget < WORKSET_MIN_BUDGET {
+        return String::new();
+    }
+    let ledgers = artifact.ledgers;
+    let reconciliation = artifact.reconciliation;
+    let mut out = String::from("\n### Active workset\n\n");
+
+    // The plan the agent was working to, which is the closest thing to a spec
+    // pointer the transcript carries.
+    // Six plan items, six files, two errors: the workset is a starting point, and
+    // everything it leaves out is in the full ledger immediately below it.
+    if let Some(plan) = &ledgers.plan {
+        let open: Vec<_> = plan
+            .items
+            .iter()
+            .filter(|item| !matches!(item.status.as_str(), "completed" | "cancelled"))
+            .collect();
+        if !open.is_empty() {
+            out.push_str(&format!("**Plan at evt {}**\n", plan.evt));
+            for item in open.iter().take(5) {
+                // The plan is one snapshot at `plan.evt`; individual items do
+                // not carry their own pointer.
+                out.push_str(&format!(
+                    "- {} ({}) [evt {}]\n",
+                    one_line(&item.text, 160),
+                    item.status,
+                    plan.evt
+                ));
+            }
+            out.push('\n');
+        }
+    }
+
+    // What changed most recently, not everything that ever changed.
+    let mut recent: Vec<&crate::pipeline::ledgers::FileRecord> =
+        ledgers.files.iter().filter(|file| !file.deleted).collect();
+    recent.sort_by_key(|file| std::cmp::Reverse(file.last_evt));
+    if !recent.is_empty() {
+        out.push_str("**Most recently touched**\n");
+        for file in recent.iter().take(6) {
+            out.push_str(&format!(
+                "- `{}` — {} edit(s), last evt {} [evt {}]\n",
+                posix(std::path::Path::new(&file.path)),
+                file.edits,
+                file.last_evt,
+                file.last_evt
+            ));
+        }
+        if ledgers.files.len() > recent.len().min(6) {
+            out.push_str(&format!(
+                "\n_{} file(s) in total; the full ledger is below._\n",
+                ledgers.files.len()
+            ));
+        }
+        out.push('\n');
+    }
+
+    // The most recent run of each of these is what "is it green?" means.
+    for (label, category) in [
+        ("Latest test", crate::pipeline::ledgers::CmdCategory::Test),
+        ("Latest build", crate::pipeline::ledgers::CmdCategory::Build),
+        ("Latest lint", crate::pipeline::ledgers::CmdCategory::Lint),
+    ] {
+        let latest = ledgers
+            .commands
+            .iter()
+            .filter(|command| command.category == category)
+            .max_by_key(|command| command.evt);
+        if let Some(command) = latest {
+            out.push_str(&format!(
+                "**{label}**: `{}` — {} [evt {}]\n",
+                one_line(&command.normalized, 120),
+                command.status(),
+                command.evt
+            ));
+        }
+    }
+
+    // What is still broken, which is the one ledger section that is *current*
+    // rather than historical.
+    let unresolved = ledgers.unresolved_errors();
+    if unresolved.is_empty() {
+        out.push_str("**Unresolved errors**: none\n");
+    } else {
+        out.push_str(&format!("**Unresolved errors**: {}\n", unresolved.len()));
+        for error in unresolved.iter().take(2) {
+            out.push_str(&format!(
+                "- {} (×{}) [evt {}]\n",
+                one_line(&error.example, 110),
+                error.occurrences,
+                error.last_evt
+            ));
+        }
+    }
+
+    // The repository as it is now, which the session could not know.
+    if !reconciliation.changed_since_session.is_empty() {
+        out.push_str(&format!(
+            "**Changed since the session ended**: {} file(s)\n",
+            reconciliation.changed_since_session.len()
+        ));
+    }
+    if reconciliation.uncommitted_changes > 0 {
+        out.push_str(&format!(
+            "**Uncommitted right now**: {}\n",
+            reconciliation.uncommitted_changes
+        ));
+    }
+    let commits = &ledgers.git.commits;
+    if !commits.is_empty() {
+        out.push_str("**Commits this session made**\n");
+        for commit in commits.iter().rev().take(3) {
+            out.push_str(&format!(
+                "- `{}` {} [evt {}]\n",
+                short_sha(&commit.sha),
+                one_line(&commit.subject, 100),
+                commit.evt
+            ));
+        }
+    }
+    if !reconciliation.commits_since_session.is_empty() {
+        out.push_str(&format!(
+            "**Commits after the session**: {}\n",
+            reconciliation.commits_since_session.len()
+        ));
+    }
+    out.push('\n');
+    out
+}
+
 /// The deterministic ledgers: true whether or not a model ran.
 fn render_ledgers(artifact: &Artifact<'_>) -> String {
     let ledgers = artifact.ledgers;
-    let mut out = String::new();
+    let mut out = render_workset(artifact);
 
     let edited = ledgers.edited_files();
     if !edited.is_empty() {
         out.push_str(
-            "\n### Files touched\n\n| path | ops | last evt | status |\n|---|---|---|---|\n",
+            "\n#### Files touched (the full ledger)\n\n| path | ops | last evt | status |\n|---|---|---|---|\n",
         );
         for file in edited.iter().take(40) {
             let mut status = if file.deleted { "deleted" } else { "exists" }.to_string();
@@ -677,6 +999,8 @@ fn render_ledgers(artifact: &Artifact<'_>) -> String {
         ));
     }
 
+    // Six plan items, six files, two errors: the workset is a starting point, and
+    // everything it leaves out is in the full ledger immediately below it.
     if let Some(plan) = &ledgers.plan {
         out.push_str(&format!(
             "\n### Plan as last published [evt {}]\n",
@@ -844,8 +1168,11 @@ pub fn token_counts(artifact: &Artifact<'_>) -> TokenCounts {
 }
 
 fn one_line(text: &str, max_bytes: usize) -> String {
-    let single = text.replace(['\n', '\r'], " ");
-    crate::vendor::codex::truncate::truncate_middle_bytes(single.trim(), max_bytes)
+    // Collapse *runs* of whitespace, not just newlines. A stack trace and an
+    // indented table both arrive with columns of spaces, and a quoted line that
+    // keeps them reads as damage.
+    let single = text.split_whitespace().collect::<Vec<&str>>().join(" ");
+    crate::vendor::codex::truncate::truncate_middle_bytes(&single, max_bytes)
 }
 
 /// The machine-readable artifact (`handoff.json`, schema `sctxx.handoff/v1`).
@@ -1320,5 +1647,218 @@ mod semantic_render_tests {
         assert!(text.contains("semantic: not_requested"));
         assert!(!text.contains("UNAVAILABLE"));
         assert!(!text.contains("EMPTY"));
+    }
+}
+
+#[cfg(test)]
+mod end_state_render_tests {
+    use super::*;
+    use crate::pipeline::finalize::{DerivedStep, EndState, Finding, FindingKind, Resolution};
+    use crate::pipeline::fold::ops::ItemKind;
+    use crate::pipeline::ledgers::{Ledgers, UserMessageRecord};
+    use crate::pipeline::{SemanticState, fold::state::FoldState};
+
+    fn render_with(end_state: EndState, ledgers: Ledgers, budget: usize) -> String {
+        let options = RenderOptions {
+            semantic: SemanticState::NotRequested,
+            end_state: Some(end_state),
+            budget,
+            ..RenderOptions::default()
+        };
+        let session = crate::ir::Session {
+            agent: crate::ir::AgentKind::ClaudeCode,
+            id: "id".into(),
+            source_paths: Vec::new(),
+            source_hash: String::new(),
+            meta: crate::ir::SessionMeta::default(),
+            events: Vec::new(),
+            active: Vec::new(),
+            native_compactions: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let state = FoldState::new();
+        let reconciliation = crate::pipeline::reconcile::Reconciliation::default();
+        markdown(&Artifact {
+            session: &session,
+            ledgers: &ledgers,
+            state: &state,
+            reconciliation: &reconciliation,
+            tail: &[],
+            options: &options,
+        })
+    }
+
+    fn ledgers_with_summary() -> Ledgers {
+        Ledgers {
+            user_messages: vec![UserMessageRecord {
+                evt: 1,
+                text: "onboard yourself to this project".into(),
+            }],
+            prior_summaries: vec![UserMessageRecord {
+                evt: 900,
+                text: "The session built a manifest loader and hit a sandbox error.".into(),
+            }],
+            // One file and one command, so the ledger the workset summarises is
+            // actually there.
+            files: vec![crate::pipeline::ledgers::FileRecord {
+                path: "src/runtime.ts".into(),
+                edits: 2,
+                first_evt: 3,
+                last_evt: 7,
+                ..Default::default()
+            }],
+            commands: vec![crate::pipeline::ledgers::CommandRecord {
+                evt: 14,
+                command: "pnpm vitest run".into(),
+                normalized: "pnpm vitest run".into(),
+                exit_code: Some(1),
+                is_error: Some(true),
+                category: crate::pipeline::ledgers::CmdCategory::Test,
+                output_head: String::new(),
+                output_tail: String::new(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn findings_are_the_first_thing_in_the_brief() {
+        let end = EndState {
+            resolutions: Vec::new(),
+            derived_step: None,
+            findings: vec![Finding {
+                kind: FindingKind::RepoMovedOn,
+                text: "3 commit(s) landed after this session ended".into(),
+            }],
+        };
+        let text = render_with(end, ledgers_with_summary(), 8_000);
+        let brief = text.split("## L1").next().unwrap_or(&text);
+        let heading = brief.find("**Before you act").expect("findings are in L0");
+        let goal = brief.find("**Goal**").expect("the goal is in L0");
+        assert!(
+            heading < goal,
+            "a reader must meet the contradiction before the goal:\n{brief}"
+        );
+        assert!(brief.contains("the repository moved on"), "{brief}");
+    }
+
+    #[test]
+    fn a_derived_step_is_labelled_as_derived() {
+        let end = EndState {
+            resolutions: Vec::new(),
+            findings: Vec::new(),
+            derived_step: Some(DerivedStep {
+                text: "derived from the ledger, not model-written: the last recorded command was \
+                       `pnpm test` (FAILED, evt 14)"
+                    .into(),
+                evt: 14,
+            }),
+        };
+        let text = render_with(end, ledgers_with_summary(), 8_000);
+        assert!(
+            text.contains("**Current step** — derived from the ledger"),
+            "{text}"
+        );
+        assert!(text.contains("[evt 14]"), "{text}");
+    }
+
+    #[test]
+    fn resolved_actions_are_listed_so_they_are_not_redone() {
+        let end = EndState {
+            resolutions: vec![Resolution {
+                id: "N1".into(),
+                text: "run `cargo test --lib`".into(),
+                command: "cargo test --lib".into(),
+                evt: 40,
+            }],
+            findings: Vec::new(),
+            derived_step: None,
+        };
+        let text = render_with(end, ledgers_with_summary(), 8_000);
+        assert!(text.contains("Already done"), "{text}");
+        assert!(text.contains("cargo test --lib"), "{text}");
+        assert!(text.contains("[evt 40]"), "{text}");
+    }
+
+    #[test]
+    fn the_first_request_is_provenance_and_the_folded_goal_is_active() {
+        // The review's point: on a ten-day session the opening prompt is where
+        // the work started, not what it is now.
+        let options = RenderOptions {
+            budget: 8_000,
+            ..RenderOptions::default()
+        };
+        let session = crate::ir::Session {
+            agent: crate::ir::AgentKind::ClaudeCode,
+            id: "id".into(),
+            source_paths: Vec::new(),
+            source_hash: String::new(),
+            meta: crate::ir::SessionMeta::default(),
+            events: Vec::new(),
+            active: Vec::new(),
+            native_compactions: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let mut state = FoldState::new();
+        state.apply(
+            "c0",
+            &crate::pipeline::fold::ops::Op::Add {
+                item: crate::pipeline::fold::ops::NewItem {
+                    kind: ItemKind::Goal,
+                    text: "make tier 3 sandboxed, the manifest loader is done".into(),
+                    why: None,
+                    quote: None,
+                    sources: vec![crate::pipeline::fold::ops::EvtRange::new(12, 12)],
+                    rejected: Vec::new(),
+                    confidence: crate::pipeline::fold::ops::Confidence::High,
+                },
+            },
+        );
+        let ledgers = ledgers_with_summary();
+        let reconciliation = crate::pipeline::reconcile::Reconciliation::default();
+        let text = markdown(&Artifact {
+            session: &session,
+            ledgers: &ledgers,
+            state: &state,
+            reconciliation: &reconciliation,
+            tail: &[],
+            options: &options,
+        });
+        let brief = text.split("## L1").next().unwrap_or(&text);
+        assert!(
+            brief.contains("**Original request** (where the work started)"),
+            "{brief}"
+        );
+        assert!(brief.contains("**Active goal**"), "{brief}");
+        assert!(brief.contains("make tier 3 sandboxed"), "{brief}");
+    }
+
+    #[test]
+    fn a_provider_summary_is_surfaced_but_never_as_evidence() {
+        let end = EndState::default();
+        let text = render_with(end, ledgers_with_summary(), 8_000);
+        let brief = text.split("## L1").next().unwrap_or(&text);
+        assert!(brief.contains("**Provider summary**"), "{brief}");
+        assert!(brief.contains("low trust"), "{brief}");
+        assert!(brief.contains("not evidence"), "{brief}");
+        assert!(brief.contains("[evt 900]"), "with its pointer: {brief}");
+    }
+
+    #[test]
+    fn a_small_budget_gets_the_ledger_and_not_a_second_copy_of_it() {
+        let end = EndState::default();
+        let small = render_with(end.clone(), ledgers_with_summary(), 400);
+        let large = render_with(end, ledgers_with_summary(), 8_000);
+        assert!(!small.contains("### Active workset"), "{small}");
+        assert!(large.contains("### Active workset"), "{large}");
+    }
+
+    #[test]
+    fn the_workset_leads_the_ledger_it_summarises() {
+        let end = EndState::default();
+        let text = render_with(end, ledgers_with_summary(), 8_000);
+        let workset = text.find("### Active workset").expect("a workset");
+        let files = text.find("#### Files touched").expect("the full ledger");
+        assert!(workset < files, "the summary leads the record:\n{text}");
     }
 }

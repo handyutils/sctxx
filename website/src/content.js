@@ -1,7 +1,7 @@
 // All page content lives here so the components stay presentational and the
 // docs can be edited without touching layout code.
 
-export const VERSION = "0.1.3";
+export const VERSION = "0.2.0";
 export const REPO = "https://github.com/handyutils/sctxx";
 export const CRATE = "https://crates.io/crates/sctxx";
 
@@ -26,6 +26,27 @@ export const proof = {
   note:
     "Measured on a synthetic tool-output-heavy session, release build. " +
     "The numbers and the command are in specs/004-m1-deterministic-handoff-skeleton/evidence/.",
+};
+
+/**
+ * The architecture diagram, as a first-class section rather than a decoration.
+ * `alt` is not optional here: the image is the fastest way to understand what
+ * sctxx is, and a reader using a screen reader gets the same explanation in text.
+ */
+export const architecture = {
+  image: "sctxx_context_extraction_architecture.png",
+  alt:
+    "sctxx context extraction architecture. Three agent transcripts — Claude Code, " +
+    "Codex CLI and Pi — are read by provider adapters that reconstruct the active " +
+    "branch. Deterministic Rust then builds the ledgers and masks the rows, which " +
+    "branch into a recency tail and into chunks. The chunks go through a premap pass " +
+    "and a stateful anchored fold that emits typed operations, which are validated " +
+    "into the fold state. The repository check reconciles that state against the " +
+    "working tree, and the renderer writes handoff.md with its pointers.",
+  caption:
+    "The whole path. Everything above the fold is deterministic Rust — parsing, active-branch " +
+    "reconstruction, ledgers, masking, segmentation, budgets, validation and rendering. Only the " +
+    "premap, the fold and the final pass can call a model, and they are opt-in (`--llm`).",
 };
 
 // Every section is searchable; `text` is the haystack.
@@ -161,8 +182,20 @@ export const sections = [
     text: "artifact layers L0 L1 L2 L3 brief items recency tail retrieval handoff.md state.json",
   },
   {
-    id: "trust",
+    id: "architecture",
     number: "06",
+    title: "How it works",
+    lead:
+      "From three transcript formats to one artifact, with every step that can be deterministic " +
+      "being deterministic.",
+    kind: "architecture",
+    text:
+      "architecture diagram pipeline adapters active branch ledgers mask segment chunk premap " +
+      "anchored fold typed ops validate state recency tail reconcile render handoff pointers",
+  },
+  {
+    id: "trust",
+    number: "07",
     title: "Why you can trust it",
     lead:
       "Most compaction is a model reading a transcript and writing a paragraph. sctxx is built " +
@@ -218,7 +251,7 @@ export const sections = [
   },
   {
     id: "backends",
-    number: "07",
+    number: "08",
     title: "LLM backends",
     lead: "The fold is optional and works with whatever you already have.",
     kind: "backends",
@@ -228,7 +261,7 @@ export const sections = [
   },
   {
     id: "commands",
-    number: "08",
+    number: "09",
     title: "Command reference",
     lead: "Every command writes its payload to stdout and its progress to stderr.",
     kind: "commands",
@@ -236,7 +269,7 @@ export const sections = [
   },
   {
     id: "workflows",
-    number: "09",
+    number: "10",
     title: "Worked examples",
     lead: "Four things people actually do with this.",
     kind: "workflows",
@@ -244,7 +277,7 @@ export const sections = [
   },
   {
     id: "troubleshooting",
-    number: "10",
+    number: "11",
     title: "Troubleshooting",
     lead: "What the exit codes mean and what to do about them.",
     kind: "faq",

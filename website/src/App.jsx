@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+// Vite resolves this to a hashed URL at build time, so the diagram ships with the
+// site rather than depending on a path that happens to be served.
+import architectureImg from "./assets/img/sctxx_context_extraction_architecture.jpg";
 import { apply, readPreference, watchSystem } from "./theme.js";
 import {
   CRATE,
   REPO,
   VERSION,
+  architecture,
   artifactFiles,
   artifactSample,
   backends,
@@ -171,6 +175,22 @@ function ReferenceSection() {
   );
 }
 
+/**
+ * The architecture diagram.
+ *
+ * A figure, not a decoration: the caption carries the one fact the picture
+ * cannot show (which stages may call a model), and the alt text is the whole
+ * pipeline in words for a reader who cannot see it.
+ */
+function ArchitectureSection() {
+  return (
+    <figure className="architecture">
+      <img src={architectureImg} alt={architecture.alt} loading="lazy" />
+      <figcaption>{architecture.caption}</figcaption>
+    </figure>
+  );
+}
+
 function ArtifactSection() {
   return (
     <>
@@ -323,6 +343,8 @@ function SectionBody({ section }) {
       return <ReferenceSection />;
     case "artifact":
       return <ArtifactSection />;
+    case "architecture":
+      return <ArchitectureSection />;
     case "backends":
       return <Backends />;
     case "commands":

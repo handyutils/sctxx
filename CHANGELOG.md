@@ -9,6 +9,34 @@ bump and a compatibility note.
 
 ### Added
 
+- **L0 now reconciles the end state against the evidence, deterministically** (`pipeline::finalize`,
+  no model). It leads with what contradicts the handoff — the repository moved on, cited files are
+  gone, the history was rewritten, the working tree is dirty, verified claims went stale — and it
+  resolves an action that a later successful command already satisfied, so a receiving agent does not
+  redo finished work. When the fold left no current step, one is derived and **labelled as derived**.
+- **The first request and the active goal are now different things.** On a ten-day session "onboard
+  yourself to this project" is where the work started, not what it is; L0 shows `Original request` and
+  `Active goal` separately.
+- **The provider's own compaction summary is surfaced in L0**, with its event pointer and an explicit
+  *low trust — written by a model, not evidence* label, instead of being buried in L2.
+- **L1 leads with an Active Workset**: the agent's own plan, the most recently touched files, the latest
+  test/build/lint and whether they passed, unresolved errors, and what changed since the session ended.
+  The full ledger follows it, relabelled as the record it is.
+- **`### Architecture` on the website**, with the extraction pipeline diagram.
+
+### Changed
+
+- **Action quality is enforced rather than hoped for.** A failed command is offered as a next action
+  only if it is a real command — not a heredoc, and not a script — and only if it failed *near the end*
+  of the session. On the session this was measured against, the previous output was a single
+  2,808-character `cat >> … EOF` line that was 42% of L0; the newest failure of `npm view` was 80,000
+  events before the session stopped. Failures are now ranked by what failed (test, build, lint first).
+  The derived current step prefers the agent's own plan to its last command.
+- Quoted text collapses runs of whitespace, so a stack trace or an indented table no longer reads as
+  damaged.
+- L0 was **1,660 tokens** on that session before these changes and **1,028** after, against the
+  ~1,000-token target the review set for a reader who wants to read only L0.
+
 - **`sctxx handoff <ref> --to <agent>` — the main line, for a program.** One command extracts a
   session's context and hands you the exact command that starts a receiving agent with it:
   `{program, argv, cwd, artifact}` as JSON, ready to spawn, or `--run` to let sctxx do it. With no
