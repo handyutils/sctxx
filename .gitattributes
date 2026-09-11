@@ -1,0 +1,18 @@
+# Normalize every text file to LF in the working tree, on every platform.
+#
+# This is not cosmetic. `Session::source_hash` is the sha256 of a session file's
+# bytes, and the pipeline snapshots embed it. On Windows, git's default
+# `core.autocrlf=true` checks fixtures out with CRLF, which produced a different
+# hash and failed
+# `deterministic_artifacts_are_snapshotted_for_every_provider` on the Windows CI
+# job while macOS and Linux passed.
+* text=auto eol=lf
+
+# Archives and images are bytes, not text. Never let git touch them.
+*.zst binary
+*.gz binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
