@@ -14,7 +14,7 @@ Commits: `<full sha>`, `<full sha>`
 
 ## 2026-09-11 - A silent failure, and an audit that corrected our own story
 
-Commits: `<pending>`
+Commits: `05d0308`
 
 **The artifact the review examined was produced by a run in which every model call failed.** Its
 `state.json` says it plainly: `items: []`, `ops_log: []`, `rejected: []`, and all 41 chunks
