@@ -5,10 +5,12 @@ Labels: `wayfinder:map`
 ## Destination
 
 **Updated 2026-09-11.** M1 through M4 are done: v0.1.0 is on crates.io, the GitHub Release carries six
-targets, and the documentation site is live. The destination is now **M5 — a public, reproducible
+targets, and the documentation site is live. The near destination is **M5 — a public, reproducible
 quality number**: a probe loop, `sctxx eval` with baselines, and a results table that gates future
-prompt and algorithm changes. The road to M1 (Claude Code session → deterministic handoff → any agent,
-every pointer resolvable through `expand`) was reached and is kept below as context.
+prompt and algorithm changes. Beyond it, and added the same day by maintainer decision, **M8 makes the
+workflow a place instead of a command line** (`sctxx --tui`): find a session, extract it, and hand it to
+a fresh session of a chosen agent. The road to M1 (Claude Code session → deterministic handoff → any
+agent, every pointer resolvable through `expand`) was reached and is kept below as context.
 
 Everything before that (M0) made the repository safe to build in public.
 
@@ -50,6 +52,13 @@ Everything before that (M0) made the repository safe to build in public.
   exists (dated 2026-09-10), that every upstream path in the vendor manifest is present at it, and that
   the behaviour sctxx depends on — including `window_number` on `CompactedItem` — is in the pin rather
   than a newer build. The unversioned `codex/` clone is a reading aid, never provenance.
+- [M8: the interactive TUI](../../docs/SCTXX-ROADMAP.md) — 2026-09-11, maintainer decision: a new
+  milestone moves the roadmap's "no TUI" deferral. `sctxx --tui` browses sessions, extracts one, and
+  launches a fresh session in a chosen installed agent with the handoff pre-loaded. Block
+  `specs/024-m8-interactive-tui/`; three tickets must resolve before its plan —
+  [croft reuse and MIT attribution](issues/12-croft-reuse-and-mit-attribution.md),
+  [sctxx ↔ agentman](issues/13-sctxx-and-agentman-relationship.md), and
+  [handoff launch and seeding](issues/14-handoff-launch-and-seeding.md).
 
 ## Not yet specified
 

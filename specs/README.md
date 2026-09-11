@@ -32,6 +32,7 @@ specs/
   015 … 016                                M5 measured quality
   017 … 021                                M6 everywhere agents work
   022 … 023                                M7 breadth and 1.0
+  024                                      M8 interactive TUI (find · extract · hand off)
 ```
 
 Every block starts as a stub `spec.md` with `**Status**: Stub`. A stub is not approved scope. Fill it

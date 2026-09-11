@@ -208,6 +208,27 @@ Earn the right to promise stability.
 **Exit criterion:** sctxx 1.0.0 is published with at least six provider adapters, a compatibility policy,
 and a completed security review with every finding resolved or documented.
 
+### M8 - Interactive TUI: find a session, extract it, hand it off
+
+Added 2026-09-11 by maintainer decision. The workflow becomes a place rather than a command line:
+`sctxx --tui` browses sessions, extracts one, and launches a **new** session in a chosen installed
+agent with the handoff already loaded — the last mile extraction has never had, and the difference
+between a utility you remember and a tool you live in.
+
+- `sctxx --tui`: an icon rail with **SCTXX first**, plus file tree, search, terminal, and canvas panes
+  reused from [croft](https://github.com/vitali87/croft) (MIT, attributed from the first copied line —
+  see ticket `12-croft-reuse-and-mit-attribution`).
+- Session browser: filter by agent, date, and cwd; fuzzy search; jump by id or path; a preview built
+  from the deterministic ledgers, so it costs nothing.
+- Extraction form mirroring every `extract` flag, with the backends actually available on this machine.
+- Handoff: detect installed agents and start a fresh session seeded with the extracted context.
+
+**Feature blocks:** `specs/024-m8-interactive-tui/`
+
+**Exit criterion:** a developer who has not read the docs goes from "the session I want is in Codex" to
+a running Claude Code session that already knows the goal, the constraints, and the next action — in
+under 30 seconds, without typing a path or knowing a flag.
+
 ## Invalidation and re-planning conditions
 
 - **M1:** if clean-room parsing of Claude Code sessions proves unreliable across current versions, re-plan
@@ -223,7 +244,7 @@ and a completed security review with every finding resolved or documented.
 
 ## Explicitly deferred
 
-- A transcript viewer, TUI, or GUI.
+- A GUI. The TUI in M8 is a terminal interface, not a windowed application.
 - A hosted service, accounts, telemetry, or cloud storage.
 - Writing into any agent's session store (session injection or transplant).
 - A general memory system or code knowledge graph (sctxx exports to such systems; it does not become one).
