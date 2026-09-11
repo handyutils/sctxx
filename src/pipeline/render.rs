@@ -83,6 +83,12 @@ pub struct RenderOptions {
     pub mode: &'static str,
     pub llm: String,
     pub redact: RedactMode,
+    /// Tokens the masked view of the whole session costs. Known only to the
+    /// pipeline, which is why it is passed in rather than recomputed here.
+    pub masked_tokens: usize,
+    /// Tokens this artifact costs. `Extraction::markdown` fills it from a first
+    /// pass, so the header can state its own size.
+    pub artifact_tokens: usize,
 }
 
 impl Default for RenderOptions {
@@ -93,6 +99,8 @@ impl Default for RenderOptions {
             mode: "standard",
             llm: "none".to_string(),
             redact: RedactMode::Default,
+            masked_tokens: 0,
+            artifact_tokens: 0,
         }
     }
 }
@@ -794,6 +802,14 @@ fn render_retrieval(artifact: &Artifact<'_>) -> String {
 }
 
 /// Token accounting for the artifact header and `report.json`.
+///
+/// `masked` and `artifact` come from the caller: the renderer cannot compute
+/// either. The masked count lives in the pipeline (it is the sum over every
+/// row, and the artifact only carries the tail), and the artifact count is the
+/// size of the text being rendered, which is why `Extraction::markdown`
+/// measures a first pass and renders again with the answer. They used to be
+/// hardcoded to 0, which made every artifact's header claim the session had no
+/// masked tokens at all.
 pub fn token_counts(artifact: &Artifact<'_>) -> TokenCounts {
     let raw: usize = artifact
         .session
@@ -804,8 +820,8 @@ pub fn token_counts(artifact: &Artifact<'_>) -> TokenCounts {
         .sum();
     TokenCounts {
         raw,
-        masked: 0,
-        artifact: 0,
+        masked: artifact.options.masked_tokens,
+        artifact: artifact.options.artifact_tokens,
         tail: artifact.tail.iter().map(|row| row.tokens).sum(),
     }
 }

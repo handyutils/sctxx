@@ -38,6 +38,53 @@ fn extract(relative: &str, options: &ExtractOptions) -> pipeline::Extraction {
         .unwrap_or_else(|error| panic!("{relative}: {error}"))
 }
 
+/// One number out of the artifact's `tokens: {…}` front-matter line.
+fn token_field(markdown: &str, name: &str) -> usize {
+    let line = markdown
+        .lines()
+        .find(|line| line.starts_with("tokens:"))
+        .unwrap_or_else(|| {
+            panic!(
+                "no tokens line in:\n{}",
+                &markdown[..markdown.len().min(400)]
+            )
+        });
+    let rest = &line[line
+        .find(name)
+        .unwrap_or_else(|| panic!("no {name} in {line}"))
+        + name.len()..];
+    rest.trim_start_matches([':', ' '])
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .unwrap_or_else(|error| panic!("{name} in {line}: {error}"))
+}
+
+#[test]
+fn the_artifact_header_states_its_own_real_size() {
+    let options = deterministic_options();
+    let extraction = extract("claude/basic.jsonl", &options);
+    let markdown = extraction.markdown(&options);
+
+    // These two were hardcoded to 0, so every artifact's header claimed the
+    // session had no masked tokens and that the artifact was empty — the line a
+    // reader uses to judge how much was thrown away.
+    let masked = token_field(&markdown, "masked");
+    let artifact = token_field(&markdown, "artifact");
+
+    assert!(masked > 0, "masked is still zero:\n{markdown}");
+    assert!(artifact > 0, "artifact is still zero:\n{markdown}");
+    assert_eq!(masked, extraction.report.tokens.masked);
+    // Measured from a first pass, so it can differ by the digits it prints —
+    // never by more.
+    let reported = extraction.markdown(&options).len() / 4;
+    assert!(
+        artifact.abs_diff(reported) <= 4,
+        "artifact {artifact} vs measured {reported}"
+    );
+}
+
 /// Normalize the parts of an artifact that legitimately vary between runs.
 fn stable(markdown: &str) -> String {
     stable_for(markdown, env!("CARGO_MANIFEST_DIR"))

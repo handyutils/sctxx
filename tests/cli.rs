@@ -197,6 +197,28 @@ fn an_out_of_range_max_bad_lines_is_a_usage_error() {
 }
 
 #[test]
+fn writing_outside_a_repository_leaks_no_git_errors() {
+    // The git-ignore check runs on every `--out`, and "not a repository" is a
+    // normal answer to it, not something to print at the user. It used to:
+    // `Command::status` inherits stderr, so git's own fatal message appeared
+    // whenever the artifact was written outside a work tree.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("artifacts");
+    let output = sctxx()
+        .args(["extract"])
+        .arg(fixtures().join("claude/basic.jsonl"))
+        .args(["--llm", "none", "--no-verify"])
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("run");
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    let stderr = stderr_of(&output);
+    assert!(!stderr.contains("fatal:"), "{stderr}");
+    assert!(!stderr.contains("not a git repository"), "{stderr}");
+}
+
+#[test]
 fn extract_warns_when_git_would_track_the_artifact() {
     let dir = tempfile::tempdir().expect("tempdir");
     let repo = dir.path();

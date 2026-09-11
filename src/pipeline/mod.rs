@@ -160,29 +160,34 @@ impl Extraction {
 
     /// Render the markdown artifact.
     pub fn markdown(&self, options: &ExtractOptions) -> String {
-        let render_options = self.render_options(options);
-        render::markdown(&render::Artifact {
-            session: &self.session,
-            ledgers: &self.ledgers,
-            state: &self.state,
-            reconciliation: &self.reconciliation,
-            tail: self.tail(),
-            options: &render_options,
-        })
+        let mut render_options = self.render_options(options);
+        // The header states the artifact's own size, so it has to be measured
+        // before it can be printed. One extra render is cheap next to the
+        // parse, and the first pass differs from the second only by the few
+        // bytes its own digit count changes — far below the 4-bytes-per-token
+        // precision of the estimate itself.
+        let measured = render::markdown(&self.artifact(&render_options));
+        render_options.artifact_tokens =
+            crate::vendor::codex::truncate::approx_token_count(&measured);
+        render::markdown(&self.artifact(&render_options))
     }
 
     /// Render the JSON artifact.
     pub fn json(&self, options: &ExtractOptions) -> serde_json::Value {
         let render_options = self.render_options(options);
-        let artifact = render::Artifact {
+        serde_json::to_value(render::json(&self.artifact(&render_options)))
+            .unwrap_or(serde_json::Value::Null)
+    }
+
+    fn artifact<'a>(&'a self, options: &'a render::RenderOptions) -> render::Artifact<'a> {
+        render::Artifact {
             session: &self.session,
             ledgers: &self.ledgers,
             state: &self.state,
             reconciliation: &self.reconciliation,
             tail: self.tail(),
-            options: &render_options,
-        };
-        serde_json::to_value(render::json(&artifact)).unwrap_or(serde_json::Value::Null)
+            options,
+        }
     }
 
     fn render_options(&self, options: &ExtractOptions) -> render::RenderOptions {
@@ -192,6 +197,10 @@ impl Extraction {
             mode: options.mode.label(),
             llm: self.llm_label.clone(),
             redact: options.redact,
+            // The header reports what the whole session costs as a masked
+            // transcript; only the pipeline knows that number.
+            masked_tokens: self.report.tokens.masked,
+            ..render::RenderOptions::default()
         }
     }
 }

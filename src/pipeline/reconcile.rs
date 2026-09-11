@@ -278,16 +278,20 @@ pub fn is_git_ignored(path: &Path) -> Option<bool> {
     if !ALLOWED.contains(&"check-ignore") {
         return None;
     }
-    let status = Command::new("git")
+    // `output()` rather than `status()`: the latter hands the child the
+    // parent's stderr, so writing an artifact outside a repository printed git's
+    // own `fatal: not a git repository` at the user, from a check whose whole
+    // point is that "not a repository" is a normal answer.
+    let output = Command::new("git")
         .args(["check-ignore", "--quiet", "--"])
         .arg(path)
         .current_dir(path)
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_PAGER", "cat")
         .env("GIT_TERMINAL_PROMPT", "0")
-        .status()
+        .output()
         .ok()?;
-    match status.code() {
+    match output.status.code() {
         // 0 = ignored, 1 = not ignored, anything else = no answer.
         Some(0) => Some(true),
         Some(1) => Some(false),
