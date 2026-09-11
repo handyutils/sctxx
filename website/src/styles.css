@@ -2,14 +2,53 @@
    paper background, ink headings, a single accent, monospace for anything a
    reader might type. */
 :root {
+  color-scheme: light;
+  /* Text and surfaces */
   --ink: #14231e;
   --muted: #66736e;
   --line: #dce5df;
   --paper: #f6f8f4;
+  --surface: #fff;
+  --surface-2: #eaf0ea;
+  --topbar: #f6f8f4e8;
+  /* Panels that are dark in both themes, and the text that sits on them */
+  --hero: #14231e;
+  --on-dark: #fff;
+  --code: #10201b;
+  --code-line: #385149;
+  --code-muted: #a7c1b5;
+  --code-fg: #d9efe2;
+  /* Accents */
   --mint: #c9f27a;
   --orange: #ff7b43;
-  --code: #10201b;
-  --white: #fff;
+  --accent-line: #b6d98a;
+  --accent-wash: #fbfef6;
+}
+
+/* The dark palette redefines the same names, so no rule below this point has to
+   know which theme is active. `data-theme` is resolved in JavaScript — including
+   `auto`, which is resolved against the OS and kept in step by a matchMedia
+   listener — so there is exactly one source of truth for which theme is on. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e7efe9;
+  --muted: #93a39b;
+  --line: #26332d;
+  --paper: #0c1411;
+  --surface: #131e1a;
+  --surface-2: #1b2723;
+  --topbar: #0c1411e6;
+  /* Panels stay dark, and stay distinct from the page behind them. */
+  --hero: #101a16;
+  --on-dark: #f2f7f3;
+  --code: #0a1210;
+  --code-line: #2b3a34;
+  --code-muted: #8ea79a;
+  --code-fg: #d9efe2;
+  --mint: #c9f27a;
+  --orange: #ff8f5e;
+  --accent-line: #3d5a2b;
+  --accent-wash: #16211a;
 }
 
 * {
@@ -38,7 +77,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: #f6f8f4e8;
+  background: var(--topbar);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
@@ -66,7 +105,7 @@ body {
   width: 31px;
   height: 31px;
   border-radius: 9px;
-  background: var(--ink);
+  background: var(--hero);
   color: var(--mint);
   font: 12px "DM Mono", monospace;
 }
@@ -103,12 +142,56 @@ body {
   margin-left: auto;
 }
 
+/* ---- theme switch --------------------------------------------------- */
+/* Three icons rather than a two-state toggle: "follow my system" is a real
+   third answer, and a toggle cannot express it. */
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.theme-option:hover {
+  color: var(--ink);
+}
+
+.theme-option[aria-pressed="true"] {
+  background: var(--hero);
+  color: var(--on-dark);
+}
+
+.theme-option:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 1px;
+}
+
 .search {
   display: flex;
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
-  background: var(--white);
+  background: var(--surface);
   border-radius: 9px;
   color: var(--muted);
   padding: 7px 9px;
@@ -140,8 +223,8 @@ body {
 }
 
 .button-dark {
-  background: var(--ink);
-  color: var(--white);
+  background: var(--hero);
+  color: var(--on-dark);
 }
 
 .button-light {
@@ -152,7 +235,7 @@ body {
 
 .button-ghost {
   border: 1px solid #ffffff3d;
-  color: var(--white);
+  color: var(--on-dark);
 }
 
 .menu-button,
@@ -234,9 +317,9 @@ body {
 
 /* ---- hero ----------------------------------------------------------- */
 .hero {
-  background: var(--ink);
+  background: var(--hero);
   border-radius: 19px;
-  color: var(--white);
+  color: var(--on-dark);
   padding: 44px 44px 26px;
   overflow: hidden;
   position: relative;
@@ -322,7 +405,7 @@ body {
 }
 
 .hero-grid code {
-  color: var(--white);
+  color: var(--on-dark);
   font: 12px "DM Mono", monospace;
 }
 
@@ -333,7 +416,7 @@ body {
   align-items: center;
   gap: 20px;
   border: 1px solid var(--line);
-  background: var(--white);
+  background: var(--surface);
   border-radius: 13px;
   padding: 20px 24px;
   margin-top: 18px;
@@ -419,7 +502,7 @@ body {
   border-radius: 11px;
   padding: 18px 20px;
   margin: 18px 0;
-  color: #d9efe2;
+  color: var(--code-fg);
   overflow: auto;
 }
 
@@ -438,10 +521,10 @@ body {
   position: absolute;
   top: 10px;
   right: 10px;
-  border: 1px solid #385149;
+  border: 1px solid var(--code-line);
   border-radius: 6px;
   background: transparent;
-  color: #a7c1b5;
+  color: var(--code-muted);
   font: 10px "DM Mono", monospace;
   padding: 5px 8px;
   cursor: pointer;
@@ -462,7 +545,7 @@ body {
 td code,
 .faq-list code,
 .card p code {
-  background: #eaf0ea;
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 2px 5px;
@@ -485,7 +568,7 @@ td code,
 }
 
 .card {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 13px;
   padding: 21px;
@@ -555,12 +638,12 @@ td code,
   border: 1px solid var(--line);
   border-radius: 13px;
   overflow: hidden;
-  background: var(--white);
+  background: var(--surface);
 }
 
 .prompt-say {
   padding: 18px 20px;
-  background: #eef3ec;
+  background: var(--surface-2);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -603,7 +686,7 @@ td code,
   display: flex;
   gap: 16px;
   border: 1px solid var(--line);
-  background: var(--white);
+  background: var(--surface);
   border-radius: 12px;
   padding: 16px 18px;
 }
@@ -614,7 +697,7 @@ td code,
   display: grid;
   place-items: center;
   border-radius: 6px;
-  background: var(--ink);
+  background: var(--hero);
   color: var(--mint);
   font: 11px "DM Mono", monospace;
 }
@@ -642,7 +725,7 @@ td code,
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--white);
+  background: var(--surface);
   margin: 16px 0;
 }
 
@@ -697,13 +780,13 @@ td:first-child {
 .backend {
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--white);
+  background: var(--surface);
   padding: 16px 18px;
 }
 
 .backend.recommended {
-  border-color: #b6d98a;
-  background: #fbfef6;
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
 }
 
 .backend-head {
@@ -804,7 +887,7 @@ td:first-child {
 }
 
 .faq-list details {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 17px;
@@ -837,7 +920,7 @@ td:first-child {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 15px;
-  background: var(--white);
+  background: var(--surface);
   text-decoration: none;
 }
 

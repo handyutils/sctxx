@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { apply, readPreference, watchSystem } from "./theme.js";
 import {
   CRATE,
   REPO,
@@ -350,14 +351,81 @@ function matches(section, query) {
   return haystack.includes(needle);
 }
 
+/** Sun, moon, and a half-filled circle: the three answers to "which theme?". */
+function ThemeIcon({ name }) {
+  const base = {
+    width: 15,
+    height: 15,
+    viewBox: "0 0 24 24",
+    "aria-hidden": "true",
+    focusable: "false",
+  };
+  if (name === "light") {
+    return (
+      <svg {...base} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <circle cx="12" cy="12" r="4.2" />
+        <path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4M4.8 4.8l1.7 1.7M17.5 17.5l1.7 1.7M19.2 4.8l-1.7 1.7M6.5 17.5l-1.7 1.7" />
+      </svg>
+    );
+  }
+  if (name === "dark") {
+    return (
+      <svg {...base} fill="currentColor">
+        <path d="M20.5 13.2A8.6 8.6 0 1 1 10.8 3.5a6.8 6.8 0 0 0 9.7 9.7z" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...base} fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="8.8" />
+      <path d="M12 3.2a8.8 8.8 0 0 0 0 17.6z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Light · Dark · Auto, as a segmented control in the top bar. */
+function ThemeSwitch({ preference, onChange }) {
+  return (
+    <div className="theme-switch" role="group" aria-label="Colour theme">
+      {[
+        ["light", "Light"],
+        ["dark", "Dark"],
+        ["auto", "Match your system"],
+      ].map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          className="theme-option"
+          aria-pressed={preference === value}
+          aria-label={label}
+          title={label}
+          onClick={() => onChange(value)}
+        >
+          <ThemeIcon name={value} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function App() {
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useState(readPreference);
 
   const visible = useMemo(
     () => sections.filter((section) => matches(section, query)),
     [query],
   );
+
+  // Apply the preference, and while it is `auto`, keep following the OS as the
+  // reader's machine switches appearance. index.html resolves the same rule
+  // before the first paint; this effect covers everything after.
+  useEffect(() => {
+    apply(theme);
+    if (theme !== "auto") return undefined;
+    return watchSystem(() => apply("auto"));
+  }, [theme]);
 
   // Cmd/Ctrl-K focuses search; Escape clears it.
   useEffect(() => {
@@ -388,6 +456,7 @@ export default function App() {
             <a href="#troubleshooting">Troubleshooting</a>
           </nav>
           <div className="top-actions">
+            <ThemeSwitch preference={theme} onChange={setTheme} />
             <label className="search compact-search">
               <span>⌕</span>
               <input

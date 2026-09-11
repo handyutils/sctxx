@@ -21,6 +21,23 @@
       href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Resolve the theme before the first paint, so a reader whose OS is dark
+      // never sees a white flash. `src/theme.js` applies the same rule for
+      // changes made in the app; keep the two in step.
+      (function () {
+        try {
+          var preference = localStorage.getItem("sctxx-theme") || "auto";
+          var dark =
+            preference === "dark" ||
+            (preference !== "light" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+        } catch (error) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

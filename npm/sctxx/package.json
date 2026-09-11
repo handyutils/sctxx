@@ -1,6 +1,6 @@
 {
   "name": "sctxx",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turn a coding-agent session transcript (Claude Code, Codex CLI, Pi) into a compact, verified, provenance-linked handoff artifact any other agent can continue from.",
   "license": "Apache-2.0",
   "homepage": "https://handyutils.github.io/sctxx",
@@ -32,11 +32,11 @@
     "node": ">=14"
   },
   "optionalDependencies": {
-    "sctxx-darwin-arm64": "0.1.0",
-    "sctxx-darwin-x64": "0.1.0",
-    "sctxx-linux-arm64": "0.1.0",
-    "sctxx-linux-x64": "0.1.0",
-    "sctxx-win32-arm64": "0.1.0",
-    "sctxx-win32-x64": "0.1.0"
+    "sctxx-darwin-arm64": "0.1.1",
+    "sctxx-darwin-x64": "0.1.1",
+    "sctxx-linux-arm64": "0.1.1",
+    "sctxx-linux-x64": "0.1.1",
+    "sctxx-win32-arm64": "0.1.1",
+    "sctxx-win32-x64": "0.1.1"
   }
 }

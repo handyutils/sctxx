@@ -7,6 +7,10 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-11
+
+Found by pointing the tool at real sessions for the first time, plus npm as a third install channel.
+
 ### Added
 
 - **npm distribution**: `npm i -g sctxx` installs the prebuilt binary for the user's platform. A
@@ -28,6 +32,17 @@ bump and a compatibility note.
   numbers, framed as a hint rather than evidence — a chunk several turns after a compaction boundary
   previously saw nothing of what came before it. Bounded to the three most recent, 400 tokens each, so
   a heavily compacted session cannot push the transcript out of the prompt. `fold_user` is version 2.
+
+### Fixed
+
+- **Every artifact's header reported `masked: 0, artifact: 0`.** The line a reader uses to judge how
+  much of the session was discarded said nothing was. Neither number is computable where it was
+  written — the masked count belongs to the pipeline, and the artifact's size is the size of the text
+  being rendered — so both now come from the caller, with a first render measuring the artifact so the
+  header can state its own size.
+- **`extract --out` outside a repository printed git's own errors.** The git-ignore check used
+  `Command::status`, which hands the child the parent's stderr, so `fatal: not a git repository`
+  appeared at the user from a check whose normal answer is exactly that.
 
 ## [0.1.0] - 2026-09-11
 
@@ -95,5 +110,6 @@ Tracked in `docs/SCTXX-ROADMAP.md`: the probe loop and `sctxx eval` (M5); cache,
 incremental updates; host mode and an MCP server (M6). `--mode full` currently behaves as
 `standard` and says so.
 
-[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/handyutils/sctxx/releases/tag/v0.1.1
 [0.1.0]: https://github.com/handyutils/sctxx/releases/tag/v0.1.0
