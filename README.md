@@ -33,6 +33,66 @@ sctxx extract claude:7c1e8f82 --out .sctxx/
 302 MB transcript, 141,409 events, 288 user turns  ──►  7.9 KB handoff, 3.2k tokens   (5.0 s, no model)
 ```
 
+## Install
+
+```sh
+npm i -g sctxx                 # prebuilt binary for your OS, no toolchain needed
+cargo install sctxx            # builds from crates.io
+sctxx update                   # update the way you installed it (npm or cargo, detected)
+cargo binstall sctxx           # prebuilt binary via cargo
+```
+
+## Supported agents
+
+| Agent | Store | Notes |
+| --- | --- | --- |
+| Claude Code | `~/.claude/projects/` | rewinds, compaction boundaries, subagent transcripts |
+| Codex CLI | `~/.codex/sessions/`, `archived_sessions/` | `.jsonl.zst`, rollback replay, `apply_patch` |
+| Pi | `~/.pi/agent/sessions/` | session format v1–v3, branch summaries |
+
+Adding a provider means writing one adapter to the canonical IR.
+
+## Common commands
+
+```sh
+sctxx list                                   # what sessions exist here
+sctxx find "auth migration"                  # find one by topic
+sctxx extract claude:last --out .sctxx/      # the most recent session in this directory
+sctxx extract codex:6f1a2b3c --llm none      # deterministic, no model, no network
+sctxx extract pi:last --focus "finish the exporter"
+sctxx expand claude:7c1e8f82 4122..4381 --context 3
+sctxx verify .sctxx/ --strict                # is this handoff still true?
+sctxx doctor                                 # what did sctxx detect on this machine?
+```
+
+`sctxx extract --dry-run` prints the plan and the estimated token cost before spending anything.
+
+## LLM backends
+
+The fold is optional and works with whatever you already have.
+
+| `--llm` | Uses |
+| --- | --- |
+| `none` | nothing. Deterministic artifact. |
+| `auto` *(default)* | an API key if present, else an installed agent CLI, else `none` |
+| `cli:claude`, `cli:codex`, `cli:pi` | your existing subscription login, in an empty temp directory with tools disabled |
+| `api:anthropic`, `api:openai` | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` |
+| `api:compat/<model>` | any OpenAI-compatible endpoint via `SCTXX_BASE_URL` (OpenRouter, DeepSeek, Ollama, vLLM, LM Studio) |
+
+
+
+### The main line
+
+Get one agent's session into another agent:
+
+```sh
+sctxx handoff last --to claude            # extract the context and print the command
+sctxx handoff last --to claude --run      # ...and start the agent with it loaded
+sctxx handoff last --json                 # who could continue this session?
+```
+
+
+
 Measured on an Apple M1 Max (release build) against a synthetic 302 MB session with tool-output-heavy
 turns; see [`specs/004-m1-deterministic-handoff-skeleton/evidence/perf-synthetic-2026-09-11.md`](specs/004-m1-deterministic-handoff-skeleton/evidence/perf-synthetic-2026-09-11.md)
 for the command, the raw numbers, and the memory characteristic.
@@ -84,61 +144,13 @@ of undefined (reading 'capabilities') at module-host.ts:41:22. [evt 12–15]
   manifest.capabilities, which is undefined. [evt 7–11]
 ```
 
-## Supported agents
 
-| Agent | Store | Notes |
-| --- | --- | --- |
-| Claude Code | `~/.claude/projects/` | rewinds, compaction boundaries, subagent transcripts |
-| Codex CLI | `~/.codex/sessions/`, `archived_sessions/` | `.jsonl.zst`, rollback replay, `apply_patch` |
-| Pi | `~/.pi/agent/sessions/` | session format v1–v3, branch summaries |
+## sctxx Handoff Architecture - What Comes from Codex vs What Is Original
 
-Adding a provider means writing one adapter to the canonical IR.
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/7fd349db-5903-4f57-a97a-9ca394fc370b" />
 
-## Common commands
 
-```sh
-sctxx list                                   # what sessions exist here
-sctxx find "auth migration"                  # find one by topic
-sctxx extract claude:last --out .sctxx/      # the most recent session in this directory
-sctxx extract codex:6f1a2b3c --llm none      # deterministic, no model, no network
-sctxx extract pi:last --focus "finish the exporter"
-sctxx expand claude:7c1e8f82 4122..4381 --context 3
-sctxx verify .sctxx/ --strict                # is this handoff still true?
-sctxx doctor                                 # what did sctxx detect on this machine?
-```
 
-`sctxx extract --dry-run` prints the plan and the estimated token cost before spending anything.
-
-## LLM backends
-
-The fold is optional and works with whatever you already have.
-
-| `--llm` | Uses |
-| --- | --- |
-| `none` | nothing. Deterministic artifact. |
-| `auto` *(default)* | an API key if present, else an installed agent CLI, else `none` |
-| `cli:claude`, `cli:codex`, `cli:pi` | your existing subscription login, in an empty temp directory with tools disabled |
-| `api:anthropic`, `api:openai` | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` |
-| `api:compat/<model>` | any OpenAI-compatible endpoint via `SCTXX_BASE_URL` (OpenRouter, DeepSeek, Ollama, vLLM, LM Studio) |
-
-## Install
-
-```sh
-npm i -g sctxx                 # prebuilt binary for your OS, no toolchain needed
-cargo install sctxx            # builds from crates.io
-sctxx update                   # update the way you installed it (npm or cargo, detected)
-cargo binstall sctxx           # prebuilt binary via cargo
-```
-
-### The main line
-
-Get one agent's session into another agent:
-
-```sh
-sctxx handoff last --to claude            # extract the context and print the command
-sctxx handoff last --to claude --run      # ...and start the agent with it loaded
-sctxx handoff last --json                 # who could continue this session?
-```
 
 It is **deterministic**: no model, no tokens, seconds. The artifact carries every `[evt a-b]` pointer,
 every ledger, and the recency tail, and the receiving agent follows pointers with `sctxx expand`.
