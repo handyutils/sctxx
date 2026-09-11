@@ -7,6 +7,10 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-09-11
+
 ### Added
 
 - **`sctxx --tui`: an interactive session browser** (M8, first slice). It lists every session the CLI
@@ -36,6 +40,14 @@ bump and a compatibility note.
   wording.
   A relative destination is resolved against the session's project, which is what a developer means by
   `.sctxx/` when they opened the TUI from somewhere else.
+
+- **`sctxx update` updates an installed copy the way it was installed.** sctxx ships through crates.io
+  and npm, which are updated by different tools, so it decides from its own executable path: inside a
+  `node_modules` directory means npm (`npm install -g sctxx@latest`), cargo's bin directory means
+  `cargo install sctxx --force`. It prints what it detected, why, and the exact command before running
+  it, so the choice can be argued with rather than trusted. `--check` prints the plan and stops.
+  An install it did not make — a distribution package, a container image, a checkout build — is
+  refused with both installer commands named rather than guessed at.
 
 ### Changed
 
@@ -185,7 +197,8 @@ Tracked in `docs/SCTXX-ROADMAP.md`: the probe loop and `sctxx eval` (M5); cache,
 incremental updates; host mode and an MCP server (M6). `--mode full` currently behaves as
 `standard` and says so.
 
-[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/handyutils/sctxx/releases/tag/v0.2.0
 [0.1.3]: https://github.com/handyutils/sctxx/releases/tag/v0.1.3
 [0.1.2]: https://github.com/handyutils/sctxx/releases/tag/v0.1.2
 [0.1.1]: https://github.com/handyutils/sctxx/releases/tag/v0.1.1

@@ -17,6 +17,7 @@ pub(crate) mod extract;
 mod redact;
 mod schema;
 mod skill;
+mod update;
 mod verify;
 
 use crate::adapters::discovery::{ResolveOptions, Roots};
@@ -124,6 +125,8 @@ enum Command {
     Schema(schema::SchemaArgs),
     /// Report detected session stores, LLM backends, and configuration.
     Doctor,
+    /// Update this copy of sctxx the way it was installed.
+    Update(update::UpdateArgs),
 }
 
 /// Parse arguments and run. Returns the process exit code.
@@ -176,6 +179,7 @@ fn dispatch(cli: &Cli) -> Result<i32> {
         Command::Skill(command) => skill::run(command, global),
         Command::Schema(args) => schema::run(args, global),
         Command::Doctor => doctor::run(global),
+        Command::Update(args) => update::run(args, global),
     }
 }
 

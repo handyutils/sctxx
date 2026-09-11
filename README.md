@@ -126,6 +126,7 @@ The fold is optional and works with whatever you already have.
 ```sh
 npm i -g sctxx                 # prebuilt binary for your OS, no toolchain needed
 cargo install sctxx            # builds from crates.io
+sctxx update                   # update the way you installed it (npm or cargo, detected)
 cargo binstall sctxx           # prebuilt binary via cargo
 ```
 
@@ -172,7 +173,7 @@ Or download a binary from [Releases](https://github.com/handyutils/sctxx/release
 
 ## Status
 
-v0.1.3. The CLI, exit codes, and the `sctxx.handoff/v1`, `ops.v1`, and `state.v1` schemas are
+v0.2.0. The CLI, exit codes, and the `sctxx.handoff/v1`, `ops.v1`, and `state.v1` schemas are
 contracts. The Rust library surface is public but unstable before 1.0.
 
 Not yet built, and tracked in the roadmap: the probe loop and `sctxx eval` (M5), cache and

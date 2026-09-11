@@ -823,3 +823,59 @@ fn extract_to_a_named_file_writes_only_that_file() {
         }
     }
 }
+
+/// The test binary lives in `target/`, which neither installer owns — so the
+/// honest answer is that sctxx cannot update itself, and it says which commands
+/// would work instead of guessing at a package manager.
+#[test]
+fn update_refuses_a_build_that_was_not_installed() {
+    let output = sctxx().args(["update", "--check"]).output().expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stdout={} stderr={}",
+        stdout_of(&output),
+        stderr_of(&output)
+    );
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("cargo install sctxx"), "{stderr}");
+    assert!(stderr.contains("npm install -g sctxx@latest"), "{stderr}");
+    assert!(
+        stdout_of(&output).trim().is_empty(),
+        "a refusal is not payload: {}",
+        stdout_of(&output)
+    );
+}
+
+#[test]
+fn update_check_reports_the_cargo_command_and_runs_nothing() {
+    // A real cargo-shaped layout: the binary in `$CARGO_HOME/bin`, which is
+    // exactly how `Method::of` recognises a `cargo install`. `--check` must
+    // print the command and stop, which is what makes this test safe — it never
+    // spawns a package manager.
+    let cargo_home = tempfile::tempdir().expect("tempdir");
+    let bin = cargo_home.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("create bin");
+    let name = if cfg!(windows) { "sctxx.exe" } else { "sctxx" };
+    let installed = bin.join(name);
+    std::fs::copy(assert_cmd::cargo::cargo_bin("sctxx"), &installed).expect("copy the binary");
+
+    let output = std::process::Command::new(&installed)
+        .args(["update", "--check"])
+        .env("CARGO_HOME", cargo_home.path())
+        .output()
+        .expect("run");
+
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        stdout_of(&output),
+        stderr_of(&output)
+    );
+    assert_eq!(stdout_of(&output).trim(), "cargo install sctxx --force");
+    assert!(
+        stderr_of(&output).contains("cargo"),
+        "the reason must be on stderr: {}",
+        stderr_of(&output)
+    );
+}

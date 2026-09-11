@@ -154,8 +154,12 @@ sctxx
 ├── redact    <path> [--strict] [--out PATH]         # redact a session file (fixture contribution)
 ├── cache     stats|purge [<ref>]
 ├── config    get|set|path
-└── doctor                                           # detect stores, CLIs, keys, versions
+├── doctor                                           # detect stores, CLIs, keys, versions
+└── update    [--check]                              # update the way this copy was installed
 ```
+
+`sctxx --tui` is a top-level flag, not a subcommand: it takes no subcommand of its own and is a
+complete invocation (`sctxx --tui`).
 
 ### 3.4 `sctxx extract` (primary command)
 
@@ -211,6 +215,7 @@ Mode matrix:
 - `probe`: runs S6 against an existing artifact and session.
 - `skill install`: writes `SKILL.md` + references into the target agents' skill directories (§13).
 - `doctor`: prints detected stores (with counts), detected agent CLIs and versions, API key presence (never values), config path, cache size.
+- `update`: updates an installed copy **the way it was installed**, because crates.io and npm are updated by different tools. It decides from its own executable path — inside a `node_modules` directory means npm, cargo's bin directory means `cargo install` — prints the detection and the exact command, and then runs it with a fixed argv (never a shell). An install it did not make (a distribution package, a container, a checkout build) is refused with both installer commands named, rather than guessed at. `--check` prints the plan and stops.
 
 ---
 
@@ -227,7 +232,8 @@ Cargo features:
 | `zstd` | ✓ | reading `.jsonl.zst` rollouts |
 | `api` | ✓ | HTTP LLM backends (reqwest + rustls, tokio) |
 | `cli-backends` | ✓ | subprocess LLM backends (`claude`, `codex`, `pi`) |
-| `eval` | ✓ | `sctxx eval` |
+| `tui` | ✓ | `sctxx --tui` (ratatui + crossterm; the only feature that raises the MSRV, §4.3) |
+| `eval` | – | `sctxx eval` (roadmap M5; not yet implemented) |
 | `minimal` | – | alias for no-default-features: deterministic + host mode only, no network code compiled in |
 
 ### 4.2 Repository layout

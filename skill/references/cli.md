@@ -54,7 +54,16 @@ sctxx redact <path|-> [--strict] [--out PATH] [--check]
 sctxx skill  install|uninstall|print [--target A]... [--scope user|project] [--force]
 sctxx schema handoff|state|ops|ir
 sctxx doctor
+sctxx update [--check]
 ```
+
+`sctxx --tui` is a top-level flag rather than a subcommand: it takes no subcommand of its own and is a
+complete invocation. It needs a real terminal, and fails with exit 2 if stdout or stdin is piped.
+
+`sctxx update` updates an installed copy the way it was installed — npm if the executable is inside a
+`node_modules` directory, `cargo install --force` if it is in cargo's bin directory. It prints what it
+detected and the exact command before running it; `--check` stops there. An install it did not make (a
+distribution package, a container, a checkout build) is refused, with both installer commands named.
 
 Every command accepts `--json`, `--quiet`, `--claude-root`, `--codex-root`, and `--pi-root`.
 
