@@ -4,10 +4,13 @@ Labels: `wayfinder:map`
 
 ## Destination
 
-Reach roadmap **M1**: from a real Claude Code session on the M1 Max,
-`sctxx extract claude:<id> --llm none --out .sctxx/` produces a handoff that lets a Codex session state the
-goal, the last failing command, and the modified files correctly, with every pointer resolvable through
-`sctxx expand`. Everything before that (M0) makes the repository safe to build in public.
+**Updated 2026-09-11.** M1 through M4 are done: v0.1.0 is on crates.io, the GitHub Release carries six
+targets, and the documentation site is live. The destination is now **M5 — a public, reproducible
+quality number**: a probe loop, `sctxx eval` with baselines, and a results table that gates future
+prompt and algorithm changes. The road to M1 (Claude Code session → deterministic handoff → any agent,
+every pointer resolvable through `expand`) was reached and is kept below as context.
+
+Everything before that (M0) made the repository safe to build in public.
 
 ## Notes
 
@@ -42,9 +45,11 @@ goal, the last failing command, and the modified files correctly, with every poi
   is not guaranteed (local summary readable; remote encrypted; token-budget deliberately empty), and
   `window_number` separates a window re-anchor from a legacy history reset. Unblocks
   `specs/006-m2-codex-adapter/`.
-- [Pin the Codex vendoring source](issues/11-codex-vendoring-pin.md) — 2026-09-11: the `codex/`
-  reference clone is a `0.0.0-dev` (≥0.120) build with no `.git`, so the pinned commit asserted in six
-  places is currently unverifiable. Resolve before the M4 publish.
+- [Pin the Codex vendoring source](issues/11-codex-vendoring-pin.md) — 2026-09-11: **resolved by
+  verification.** Fetching `818f1cca8ccf8899f0f4d59336baebaccf358eed` directly confirms the commit
+  exists (dated 2026-09-10), that every upstream path in the vendor manifest is present at it, and that
+  the behaviour sctxx depends on — including `window_number` on `CompactedItem` — is in the pin rather
+  than a newer build. The unversioned `codex/` clone is a reading aid, never provenance.
 
 ## Not yet specified
 

@@ -4,6 +4,16 @@ Every file in this directory is derived from [openai/codex](https://github.com/o
 licensed under the Apache License 2.0, at pinned commit
 `818f1cca8ccf8899f0f4d59336baebaccf358eed`.
 
+**The pin was verified on 2026-09-11.** Fetching it directly
+(`git fetch --depth 1 origin 818f1cca8ccf8899f0f4d59336baebaccf358eed`) confirms the commit exists
+(dated `2026-09-10T17:03:11Z`), that every upstream path in the table below exists at it, and that the
+symbols these ports keep are there too. See `specs/000-wayfinding/issues/11-codex-vendoring-pin.md` for
+the full check.
+
+⚠️ The `codex/` directory at the repository root is **not** provenance. It is an unversioned,
+gitignored clone kept as a reading aid for current upstream behaviour, and it may be newer or older than
+the pin. Vendored code is always described by the commit above, never by that directory.
+
 sctxx **ports** this code rather than depending on it. The Codex workspace crates are versioned
 `0.0.0`, depend on each other through `workspace = true`, and pull heavy transitive dependencies;
 crates.io forbids git and path dependencies in published crates, so a dependency would make sctxx

@@ -38,21 +38,31 @@ clone **cannot be identified as the pinned commit**:
 - `codex/codex-cli/package.json` → `"@openai/codex"`, `"version": "0.0.0-dev"`.
 - `codex/` has **no `.git`** and is gitignored by the worktree (`.gitignore`: `/codex/`), so there is
   no commit hash to check against `818f1cca8ccf8899f0f4d59336baebaccf358eed`.
-- The tree contains modules that post-date the pinned commit's documented surface
-  (`core/src/compact_remote_v2.rs`, `core/src/compact_token_budget.rs`, `core/src/state/auto_compact_window.rs`,
-  memory templates under `ext/memories/`, and a relocated `prompts/templates/compact/`).
-  `codex-rs/rust-toolchain.toml` pins `1.95.0`.
-- The snapshot can be *placed* even though it cannot be *pinned*: `codex-rs/build-info/src/lib.rs:18-27`
+- The clone cannot be *tied* to a commit from its contents. It can be *placed*: `codex-rs/build-info/src/lib.rs:18-27`
   stamps `STABLE_GIT_COMMIT` through `option_env!` and reports `is_source_build()` when the version is
   `0.0.0`, so a source checkout carries no commit id at runtime either; and
-  `codex/announcement_tip.toml` marks version range `^0.(0..119).` as outdated, which puts this tree on
-  the **≥0.120 development line** — well past the spec's pinned revision.
+  `codex/announcement_tip.toml` marks version range `^0.(0..119).` as outdated, which puts the clone on
+  the **≥0.120 development line**.
 
-**Consequence for licensing**: `AGENTS.md`, `docs/SCTXX-SPEC.md` §2.3 and Appendix A,
-`src/vendor/codex/README.md`, and the prompt headers all assert the pinned hash. That assertion is
-currently unverifiable from this clone. Tracked as
-[Pin the Codex vendoring source](../000-wayfinding/issues/11-codex-vendoring-pin.md); it is a
-governance item, not a blocker for this block.
+**Correction (2026-09-11, after checking the pin itself).** An earlier version of this section claimed
+the clone contained modules that "post-date the pinned commit's documented surface". That was wrong, and
+it was wrong in the direction that matters: `window_number` on `CompactedItem` (`history/src/lib.rs:196`),
+`core/src/compact_token_budget.rs`, `core/src/compact_remote_v2.rs`, and the same
+`enum Tier { Human, Final, OtherAgent, Commentary, Context, Tool }` all exist at
+`818f1cca8ccf8899f0f4d59336baebaccf358eed` too. Fetching the pin (`git fetch --depth 1 origin <sha>`,
+commit dated `2026-09-10T17:03:11Z`, matching the spec's stated date) confirmed every upstream path named
+in `src/vendor/codex/README.md` and spec Appendix A, and confirmed the symbols the ports claim to keep:
+`approx_token_count`/`approx_bytes_for_tokens`, `redact_secrets` with the `sk-…` and `AKIA…` regexes,
+`serialize_tiered_input` with `TOOL_OUTPUT_TOKENS = 2_000` / `MAX_ROW_BYTES = 10_000`, the apply-patch
+hunk markers, and the 9-line `prompt.md`.
+
+**Consequence for licensing**: the pinned hash asserted in `AGENTS.md`, spec §2.3 and Appendix A,
+`src/vendor/codex/README.md`, and the prompt headers is **accurate**, and the behaviour documented below
+is grounded in the pinned source rather than in a newer build.
+[Pin the Codex vendoring source](../000-wayfinding/issues/11-codex-vendoring-pin.md) is resolved by
+verification rather than by re-pinning. The one residual nit is that the local `codex/` clone remains
+unversioned: it is a *reading aid* for current upstream behaviour, never the provenance of vendored code,
+and the vendor README now says so.
 
 ## Verified facts
 
