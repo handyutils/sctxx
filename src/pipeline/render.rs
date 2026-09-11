@@ -333,7 +333,15 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
         let mut block =
             String::from("**Before you act — the evidence contradicts this handoff:**\n");
         for finding in &end.findings {
-            block.push_str(&format!("- *{}*: {}\n", finding.kind.label(), finding.text));
+            // Through `one_line`, which also strips the truncation markers a
+            // ledger value already carries. A finding is the block a reader must
+            // not misread, and "…12 tokens truncated…" inside it describes a
+            // truncation they cannot see.
+            block.push_str(&format!(
+                "- *{}*: {}\n",
+                finding.kind.label(),
+                one_line(&finding.text, 400)
+            ));
         }
         block.push('\n');
         spend_priority(&mut out, block, &mut budget);
@@ -966,8 +974,22 @@ fn render_constraints(out: &mut String, artifact: &Artifact<'_>, budget: &mut us
     let mut block = String::from("**Hard constraints** (standing instructions, quoted verbatim)\n");
     let mut cost = approx_token_count(&block);
     let mut shown = 0usize;
+    // One rule, one line. The state layer already merges a constraint the fold
+    // re-adds, but it compares on `text`, and the fold may have rewritten `text`
+    // while the verbatim `quote` stayed the user's — which is how "never add
+    // claude to the commiter" appeared twice in the same section of a real
+    // artifact. The section a reader is told to treat as binding is the last
+    // place to show the same rule twice.
+    let mut seen: Vec<String> = Vec::new();
     for item in &constraints {
         let quote = item.quote.as_deref().unwrap_or(&item.text);
+        let key = crate::pipeline::triage::normalize(quote);
+        if !key.is_empty() {
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+        }
         let line = format!("- ({}) \"{}\" {}\n", item.id, quote, item.provenance());
         let line_cost = approx_token_count(&line);
         if shown > 0 && cost + line_cost > CONSTRAINT_BUDGET.min(*budget) {

@@ -173,6 +173,25 @@ impl FoldState {
         format!("{prefix}{seq}")
     }
 
+    /// The id of an active constraint whose text is the same rule.
+    ///
+    /// Compared on the normalized text, because two agents writing the same rule
+    /// differ on punctuation and capitalisation, not on meaning.
+    fn same_constraint(&self, text: &str) -> Option<&str> {
+        let wanted = crate::pipeline::triage::normalize(text);
+        if wanted.is_empty() {
+            return None;
+        }
+        self.items
+            .iter()
+            .find(|item| {
+                item.kind == ItemKind::Constraint
+                    && item.status.is_active()
+                    && crate::pipeline::triage::normalize(&item.text) == wanted
+            })
+            .map(|item| item.id.as_str())
+    }
+
     fn insert(&mut self, new: &NewItem) -> String {
         let id = self.next_id(new.kind);
         let last_confirmed = new.sources.iter().map(|range| range.end).max().unwrap_or(0);
@@ -200,6 +219,28 @@ impl FoldState {
         let mut created = Vec::new();
         match op {
             Op::Add { item } => {
+                // A constraint the deterministic layer already put here is not a
+                // new constraint. The observed case: the triage pass seeded
+                // "never add claude to the commiter" from the user's own words,
+                // the fold read the same sentence in the transcript and added it
+                // again, and the artifact rendered the same rule twice under
+                // Hard constraints — which is how a section that must be read
+                // carefully teaches its reader to skim it.
+                if item.kind == ItemKind::Constraint
+                    && let Some(existing) = self.same_constraint(&item.text)
+                {
+                    let id = existing.to_string();
+                    for range in &item.sources {
+                        if let Some(existing) = self.get_mut(&id)
+                            && !existing.sources.contains(range)
+                        {
+                            existing.sources.push(*range);
+                            existing.last_confirmed =
+                                existing.sources.iter().map(|r| r.end).max().unwrap_or(0);
+                        }
+                    }
+                    return vec![id];
+                }
                 let id = self.insert(item);
                 // Only one current step, goal, or three next actions may be
                 // active; a new one supersedes the oldest instead of piling up.

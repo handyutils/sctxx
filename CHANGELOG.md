@@ -52,6 +52,11 @@ bump and a compatibility note.
   Files now rank by edit and read count, commands by recency, errors with unresolved first, and each
   section says what it left out. A section is never rendered empty while entries exist — an empty
   "Error signatures" line reads as "there were none", which is the one thing it must never mean.
+- **`--llm api:<provider>` is the documented path for the fold.** Measured on the real
+  103,757-event session: a subscription CLI backend (`cli:codex`) never returned from a
+  digest-sized call — killed at 600 s, and still running when the limit was raised to 1,800 s — while
+  an OpenAI-compatible API folded the same session in **1 m 37 s**. `cli:*` remains supported and is
+  the wrong tool for a long session.
 - Fold progress reports each call's wall time. The backend is the slow part and the pipeline cannot
   show that unless it says so.
 - `--llm-timeout <secs>` for `cli:` backends. The 600 s default is not enough for a fold call over a
@@ -64,6 +69,14 @@ bump and a compatibility note.
 
 ### Fixed
 
+- **The same constraint could be rendered twice.** The state layer merges a constraint the fold
+  re-adds, but it compares on `text`, and the fold may rewrite `text` while the verbatim `quote`
+  stays the user's. "never add claude to the commiter" appeared twice in the Hard-constraints section
+  of a real artifact — in the one section a reader is told to treat as binding. The rendered section
+  now emits one line per rule.
+- **Findings carried nested truncation markers** (`…12 tokens truncated…`) describing a truncation the
+  reader cannot see, in the block they are told not to misread. Findings now render through the same
+  collapsing path as everything else.
 - **A partial fold reported itself as complete.** `classify_semantic` returned `ok` whenever at least
   one call succeeded and at least one op was accepted, so the run above — one chunk call killed at
   600 s having produced nothing, one tail pass producing four items — described itself as an ordinary
