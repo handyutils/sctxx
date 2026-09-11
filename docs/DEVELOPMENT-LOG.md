@@ -14,7 +14,7 @@ Commits: `<full sha>`, `<full sha>`
 
 ## 2026-09-11 - The main line was behind its own machinery
 
-Commits: `<pending>`
+Commits: `2d6fbc4`
 
 **The critique was right and it was about fundamentals, not polish.** Using the TUI as a developer
 would — search a session, then try to get the context out — meant opening a form of nineteen flags,
