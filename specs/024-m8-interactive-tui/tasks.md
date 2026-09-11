@@ -96,6 +96,25 @@ task says which library function is being wrapped, not reimplemented.
     cannot disagree about what a destination means, and a new CLI test covers the named-file branch
     that nothing had covered before. A relative destination resolves against the session's project
 
+- [x] **T2411** [FR-017, US1] Detect the coding agents actually installed on this machine
+  - Why: **new code with nothing to reuse.** agentman has no detector at all — only `dir.is_dir()` —
+    and the launcher's catalogue has no versions. A handoff needs the binary, its version, and whether
+    that version is one a seeding channel was verified on (ADR 0004, ADR 0005)
+  - Depends on: nothing (the form and the browser do not need it)
+  - Touches: `src/agents/mod.rs` (new), `src/lib.rs`, `src/llm/cli.rs` (the PATH lookup is now shared),
+    `src/cli/doctor.rs`
+  - RED/GREEN proof: `cargo test --all-features --lib agents::` — 11 tests
+  - Acceptance: probes binaries **and** stores, honours `CLAUDE_CONFIG_DIR` / `CODEX_HOME`, reports the
+    version it found, and distinguishes installed / installed-at-an-unverified-version / not installed;
+    no network, no real `$HOME` in tests
+  - Evidence: on this machine all three are detected at exactly the versions ADR 0004 was verified on
+    (Claude Code 2.1.268, Codex CLI 0.153.4, Pi 0.85.1), each reported as `seeding verified on this
+    version`. Two tests run real processes: one binary that answers `--version`, one that hangs and is
+    abandoned after five seconds
+  - Note: a store directory with no binary is **not** an install — `a_store_directory_with_no_binary_is_not_an_install`
+    is named after the mistake agentman makes, and a binary with no readable version is installed but
+    unverified rather than silently ready
+
 ## Open
 
 - [ ] **T2403** [FR-003] The pane rail: SCTXX first, switch by key and by click, `?` keymap
@@ -163,19 +182,6 @@ task says which library function is being wrapped, not reimplemented.
     pointers resolve through the same `expand` path the CLI uses and never re-implement it; ledgers are
     visible alongside; an existing artifact on disk opens by path (FR-016a)
   - Note: read-only. Croft's editor is 24,751 lines precisely because it is not (FR-026)
-
-- [ ] **T2411** [FR-017, US1] Detect the coding agents actually installed on this machine
-  - Why: **new code with nothing to reuse.** agentman has no detector at all — only
-    `dir.is_dir()` — and the launcher's detector reads a ~30-agent catalogue but no versions
-    (ADR 0005)
-  - Depends on: T2403
-  - Touches: `src/agents/mod.rs` (new), `src/tui/agents.rs` (new)
-  - RED/GREEN proof: `cargo test --all-features --lib detects_the_installed_agents` (temp-dir `PATH`)
-  - Acceptance: probes binaries (`which`-equivalent) **and** stores, honours `CODEX_HOME` /
-    `CLAUDE_CONFIG_DIR`, reports the version it found, and distinguishes "installed", "installed but
-    the version is not one we have verified", and "not installed"; no network, and no dependence on a
-    real `$HOME`
-  - Reference: the launcher's catalogue for *which* agents to probe, not for how
 
 - [ ] **T2412** [FR-018, FR-019, ADR 0004] Seeding templates per agent, version-pinned, with a fallback
   - Why: the last mile, and the reason the block exists. ADR 0004 fixes the shape: the artifact travels

@@ -7,7 +7,13 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`sctxx doctor` reports the coding agents a handoff can launch**, with the version each one
+  answered and whether that version is one the seeding channel was verified on. An agent installed at
+  an unverified version is reported as installed *with the fallback named*, never quietly treated as
+  ready. The detector asks whether the *binary* is on `PATH`, not whether a store directory exists —
+  a leftover directory must not advertise an agent that cannot be launched.
 
 ## [0.2.0] - 2026-09-11
 

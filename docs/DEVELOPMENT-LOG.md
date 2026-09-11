@@ -12,6 +12,42 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - 0.2.0 ships, and the agent detector lands behind it
+
+Commits: `9987b9f`, `3c07471` · Release: tag `v0.2.0`
+
+**0.2.0 is released.** It is the first version with the interactive TUI and with `sctxx update`, and
+the first with MSRV 1.88. All seven npm manifests move in lockstep with the crate;
+`node npm/check-versions.cjs` is the check, and it also verifies that `release.yml` still builds every
+platform package, so a package cannot ship empty.
+
+**`sctxx update` exists because sctxx has two install channels.** It decides from its own executable
+path — a `node_modules` component means npm, cargo's bin directory means `cargo install` — and prints
+the detection, the reason, and the exact command before running it. Two deliberate refusals:
+
+- It does not guess. A distribution package, a container, or a checkout build is refused with both
+  installer commands named. The detection compares path *components*, so a checkout under `npm-stuff/`
+  is not mistaken for an npm install.
+- It does not use `npm update`. That stays inside the range recorded at install time and cannot cross a
+  minor version, which is exactly what 0.1.3 → 0.2.0 is. `npm install -g sctxx@latest` is used instead,
+  and `cargo install` gets `--force`, without which it refuses to replace the binary it already has.
+
+**The agent detector is the first genuinely new component of M8.** Nothing could be reused: agentman
+checks only whether a store directory exists, and the launcher's catalogue carries no versions. It asks
+whether the *binary* is on `PATH`, which matters in both directions — a leftover store directory must
+not advertise an agent that cannot be launched, and a binary in an unusual place is an install even
+with no store yet. Versions are read by running `--version` with a five-second cap, because a CLI that
+hangs on `--version` must not hang sctxx. On this machine all three are found at exactly the versions
+ADR 0004 was verified on, each reported as verified rather than assumed.
+
+An agent at any *other* version is reported as installed **with the fallback named**. That is what
+carrying `verified_against` alongside the detected version is for, and it is the difference between a
+feature that degrades and one that guesses.
+
+**Small thread worth following:** the PATH lookup moved to `agents::find_program`, and
+`llm::cli::find_executable` now calls it, so the LLM backends and the handoff cannot disagree about
+whether a binary exists.
+
 ## 2026-09-11 - The TUI can extract, and the form is clap's own definition
 
 Commits: `ff97084`
