@@ -40,11 +40,19 @@ fn extract(relative: &str, options: &ExtractOptions) -> pipeline::Extraction {
 
 /// Normalize the parts of an artifact that legitimately vary between runs.
 fn stable(markdown: &str) -> String {
-    // The checkout location differs per machine, so anchor paths on the
-    // repository root instead of matching path fragments: the previous version
-    // knew about one developer's worktree layout, which is not a property of
-    // the artifact at all.
-    let root = env!("CARGO_MANIFEST_DIR");
+    stable_for(markdown, env!("CARGO_MANIFEST_DIR"))
+}
+
+/// [`stable`] against an explicit checkout root, so the Windows case is
+/// testable from any platform.
+///
+/// The artifact renders POSIX-normalized paths (`render::posix`), but
+/// `CARGO_MANIFEST_DIR` is native: on Windows it is `D:\a\sctxx\sctxx` while
+/// the line says `D:/a/sctxx/sctxx/...`. Replacing only the native form left
+/// the absolute path in place and broke the snapshots on Windows alone — which
+/// is exactly the sort of bug this repository keeps finding on one platform.
+fn stable_for(markdown: &str, root: &str) -> String {
+    let posix = root.replace('\\', "/");
     markdown
         .lines()
         .map(|line| {
@@ -56,11 +64,29 @@ fn stable(markdown: &str) -> String {
             } else if line.starts_with("sctxx:") {
                 "sctxx: <version>".to_string()
             } else {
+                // Either form, then drop the separator the native form leaves
+                // behind so the snapshot reads the same on every platform.
                 line.replace(root, "<repo>")
+                    .replace(&posix, "<repo>")
+                    .replace("<repo>\\", "<repo>/")
             }
         })
         .collect::<Vec<String>>()
         .join("\n")
+}
+
+#[test]
+fn a_windows_checkout_root_is_normalized_in_both_forms() {
+    let rendered = "- `D:/a/sctxx/sctxx/tests/fixtures/claude/basic.jsonl`";
+    assert_eq!(
+        stable_for(rendered, r"D:\a\sctxx\sctxx"),
+        "- `<repo>/tests/fixtures/claude/basic.jsonl`"
+    );
+    // And the native form, for a line that was not POSIX-normalized.
+    assert_eq!(
+        stable_for(r"- `D:\a\sctxx\sctxx\Cargo.toml`", r"D:\a\sctxx\sctxx"),
+        "- `<repo>/Cargo.toml`"
+    );
 }
 
 #[test]
