@@ -26,6 +26,22 @@ bump and a compatibility note.
   `Cargo.toml`, the CI job, the constitution, and `AGENTS.md`; reasoning in
   `docs/adr/0003-tui-stack-and-msrv.md`.
 
+### Fixed
+
+- **`--llm cli:<agent>` no longer writes sessions into your agent's history.** Every completion left a
+  real session behind: the backends run the agent in a scratch directory, but Claude Code records a
+  session *per working directory*, so each call created `~/.claude/projects/<scratch>/…jsonl` whose
+  transcript was sctxx's own prompt — and `sctxx list` then reported those as sessions. The scratch cwd
+  never prevented this; it only named the pollution. Each template now passes its CLI's own persistence
+  switch (`claude --no-session-persistence`, `codex exec --ephemeral`, `pi --no-session`), and a test
+  fails if a template loses it.
+- The `cli:` templates now record the agent CLI version each argv was verified against, and report it in
+  a backend failure, so a CLI that moves a flag is diagnosable from the error rather than from silence.
+  Verified on Claude Code 2.1.268, Codex 0.153.4, Pi 0.85.1.
+- Sessions already written by earlier versions are **not** deleted: they are in your store, and removing
+  them is your call. They are identifiable by a `sctxx-llm-` path component under the system temp
+  directory.
+
 ## [0.1.3] - 2026-09-11
 
 ### Documentation

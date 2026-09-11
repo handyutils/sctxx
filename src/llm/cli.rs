@@ -26,13 +26,15 @@ const TIMEOUT: Duration = Duration::from_secs(600);
 
 /// How to invoke one agent CLI as a completion engine.
 ///
-/// Flags differ per CLI and change between versions; each template documents
-/// the version it was verified against so a breakage is diagnosable.
+/// Flags differ per CLI and change between versions; each template records the
+/// version it was verified against so a breakage is diagnosable.
 #[derive(Debug)]
 struct Template {
     name: &'static str,
     program: &'static str,
     args: &'static [&'static str],
+    /// The agent CLI version this argv was verified on.
+    verified_against: &'static str,
     /// Where the response text lives in stdout.
     extract: Extract,
 }
@@ -51,25 +53,47 @@ const TEMPLATES: &[Template] = &[
         program: "claude",
         // `-p` is one-shot print mode; the tool allowlist is emptied so the
         // subprocess cannot touch the filesystem even inside its temp cwd.
-        args: &["-p", "--output-format", "json", "--allowed-tools", ""],
+        //
+        // `--no-session-persistence` is not optional. Claude Code records a
+        // session per working directory, so without it every completion writes
+        // a session into `~/.claude/projects` whose transcript is sctxx's own
+        // prompt — and `sctxx list` then reports sctxx's own scratch calls as
+        // real sessions. The scratch cwd does not prevent this; it only names
+        // the pollution.
+        args: &[
+            "-p",
+            "--output-format",
+            "json",
+            "--allowed-tools",
+            "",
+            "--no-session-persistence",
+        ],
+        verified_against: "2.1.268",
         extract: Extract::JsonKey("result"),
     },
     Template {
         name: "codex",
         program: "codex",
+        // `--ephemeral` is `codex exec`'s "run without persisting session files
+        // to disk", for the same reason as `claude` above; `-` reads the prompt
+        // from stdin.
         args: &[
             "exec",
             "--skip-git-repo-check",
             "--sandbox",
             "read-only",
+            "--ephemeral",
             "-",
         ],
+        verified_against: "0.153.4",
         extract: Extract::Stdout,
     },
     Template {
         name: "pi",
         program: "pi",
-        args: &["-p"],
+        // `--no-session` is Pi's "don't save session (ephemeral)".
+        args: &["-p", "--no-session"],
+        verified_against: "0.85.1",
         extract: Extract::Stdout,
     },
 ];
@@ -152,8 +176,10 @@ impl Backend for CliBackend {
             return Err(Error::LlmFailed {
                 backend: self.name(),
                 message: format!(
-                    "exited with {}: {}",
+                    "exited with {} (cli:{} is verified against {}): {}",
                     output.status.code().unwrap_or(-1),
+                    self.template.name,
+                    self.template.verified_against,
                     crate::vendor::codex::truncate::truncate_middle_bytes(stderr.trim(), 500)
                 ),
             });
@@ -268,6 +294,51 @@ pub fn detected() -> Vec<(&'static str, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_template_suppresses_session_persistence() {
+        // This is a guard, not a formality. Claude Code records a session per
+        // working directory, so a template without its switch writes one into
+        // the user's own store for every completion — and `sctxx list` then
+        // shows sctxx's private scratch prompts as sessions. Dropping the flag
+        // must fail here rather than reappear as junk in the user's history.
+        let expected = [
+            ("claude", "--no-session-persistence"),
+            ("codex", "--ephemeral"),
+            ("pi", "--no-session"),
+        ];
+        assert_eq!(
+            TEMPLATES.len(),
+            expected.len(),
+            "a template was added or removed without a persistence flag"
+        );
+        for (name, flag) in expected {
+            let template = TEMPLATES
+                .iter()
+                .find(|template| template.name == name)
+                .unwrap_or_else(|| panic!("no `{name}` template"));
+            assert!(
+                template.args.contains(&flag),
+                "cli:{name} must pass `{flag}` so the call is not recorded as a session"
+            );
+        }
+    }
+
+    #[test]
+    fn every_template_records_the_version_it_was_verified_against() {
+        // These flags change between releases without notice, so the version is
+        // what makes a breakage diagnosable from the error alone.
+        for template in TEMPLATES {
+            assert!(
+                template
+                    .verified_against
+                    .chars()
+                    .any(|c| c.is_ascii_digit()),
+                "cli:{} must record the version it was verified against",
+                template.name
+            );
+        }
+    }
 
     #[test]
     fn an_unknown_cli_name_is_a_usage_error() {
