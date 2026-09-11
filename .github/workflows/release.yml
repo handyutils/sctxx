@@ -140,9 +140,13 @@ jobs:
       contents: read
       id-token: write # --provenance signs the tarballs with this job's OIDC identity
     steps:
+      # Deliberately *not* pinned to the tag: the binaries come from the `build`
+      # job's artifacts, which were built from the tagged source, so this job
+      # only needs the packaging recipe. Checking out the tag here is what broke
+      # the first run — v0.1.0 predates `npm/`, so there was nothing to package.
+      # Taking the recipe from the ref the workflow is running on also lets a
+      # new channel be added for an existing tag.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -151,6 +155,15 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      # The version published to npm is the version that was tagged, not
+      # whatever the working tree happens to say.
+      - name: Resolve the release version
+        id: release
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "publishing npm packages at ${tag#v}"
 
       - name: The npm packages agree with the crate
         run: node npm/check-versions.cjs
@@ -161,9 +174,10 @@ jobs:
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          version=$(node -p "require('./npm/sctxx/package.json').version")
+          version="$VERSION"
           for target in $(node -p "Object.keys(require('./npm/platforms.json')).join('\n')"); do
             pkg=$(node -p "require('./npm/platforms.json')['$target'].package")
             bin=$(node -p "require('./npm/platforms.json')['$target'].binary")
@@ -187,9 +201,10 @@ jobs:
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          version=$(node -p "require('./npm/sctxx/package.json').version")
+          version="$VERSION"
           if npm view "sctxx@$version" version >/dev/null 2>&1; then
             echo "sctxx@$version is already published; nothing to do."
             exit 0
