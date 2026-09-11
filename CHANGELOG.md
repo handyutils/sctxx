@@ -25,6 +25,12 @@ bump and a compatibility note.
 - `sctxx` now reports fold progress per chunk on stderr. A 40-chunk fold against a real backend runs
   for hours and previously printed nothing between "40 chunk(s) to fold" and the end; a silent
   terminal for ninety minutes is indistinguishable from a hang.
+- **L3 indexes every episode the artifact did not carry verbatim.** The artifact keeps a recency
+  tail and summarises the rest, which drops ~820,000 tokens of a real session. Selection is the
+  right call — masking old observations matches or beats LLM summarisation on SWE-bench Verified at
+  half the cost (arXiv:2508.21433) — but only for a reader who can go and look again. The index gives
+  each of those episodes a headline, its event range and its size, so nothing is unreachable, and it
+  says how many were left out of the index itself.
 - `sctxx expand <ref> A..B` pages its output. A range larger than `--max-payload` (default 4,000
   tokens) is delivered as exact, consecutive, non-overlapping pages, each printing its number, its
   event span, and the command for the next one. Previously a large range was one unbounded dump with

@@ -104,6 +104,23 @@ pub struct RenderOptions {
     /// pass reads exactly like a complete one otherwise.
     pub fold_calls: usize,
     pub fold_failed_calls: usize,
+    /// The episodes the artifact did **not** carry verbatim: the ones before the
+    /// recency tail. Rendered as an index in L3, because that is what makes
+    /// dropping them safe. Masking old observations is the best-evidenced
+    /// strategy there is — it matches or beats LLM summarisation on SWE-bench
+    /// Verified at half the cost (arXiv:2508.21433) — but only for an agent that
+    /// can go and look again. A handoff reader can only look again if the
+    /// artifact says where.
+    pub masked_episodes: Vec<MaskedEpisode>,
+}
+
+/// One episode the artifact summarised rather than carried.
+#[derive(Debug, Clone, Default)]
+pub struct MaskedEpisode {
+    pub headline: String,
+    pub evt_start: u32,
+    pub evt_end: u32,
+    pub tokens: usize,
 }
 
 impl Default for RenderOptions {
@@ -121,6 +138,7 @@ impl Default for RenderOptions {
             guard: crate::pipeline::triage::GuardReport::default(),
             fold_calls: 0,
             fold_failed_calls: 0,
+            masked_episodes: Vec::new(),
             artifact_tokens: 0,
         }
     }
@@ -1374,6 +1392,42 @@ fn render_retrieval(artifact: &Artifact<'_>) -> String {
     out.push_str(&format!(
         "\nExpand any pointer:\n```sh\nsctxx expand {reference} <a>..<b> --context 3\n"
     ));
+
+    // What this artifact did not carry, so that dropping it is recoverable.
+    let masked = &artifact.options.masked_episodes;
+    if !masked.is_empty() {
+        let carried = masked.iter().map(|episode| episode.tokens).sum::<usize>();
+        out.push_str(&format!(
+            "\n**Not carried verbatim** — {} episode(s), {} token(s), all reachable:\n",
+            masked.len(),
+            carried
+        ));
+        const INDEX_BUDGET: usize = 1_200;
+        let mut spent = 0usize;
+        let mut shown = 0usize;
+        for episode in masked {
+            let line = format!(
+                "- evt {}–{} · {} · {}\n",
+                episode.evt_start,
+                episode.evt_end,
+                one_line(&episode.headline, 120),
+                episode.tokens
+            );
+            let cost = approx_token_count(&line);
+            if shown > 0 && spent + cost > INDEX_BUDGET {
+                break;
+            }
+            spent += cost;
+            shown += 1;
+            out.push_str(&line);
+        }
+        if shown < masked.len() {
+            out.push_str(&format!(
+                "- … and {} more episode(s); the full list is in `ledgers.json`.\n",
+                masked.len() - shown
+            ));
+        }
+    }
 
     // Concrete commands for the items most likely to need detail.
     let mut examples: Vec<String> = Vec::new();

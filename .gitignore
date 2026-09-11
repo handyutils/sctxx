@@ -49,3 +49,8 @@ website/dist/
 
 # release build output (the workflow assembles tarballs here)
 /dist/
+
+# Nothing large belongs in this repository: a subagent tarball once got
+# committed by `git add -A` and blocked the push at GitHub is 100 MB limit.
+*.tar.gz
+*.zip

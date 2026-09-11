@@ -356,6 +356,24 @@ impl Extraction {
         }
     }
 
+    /// The episodes before the recency tail: what the artifact summarised rather
+    /// than carried, and therefore what a reader has to be able to ask for.
+    fn masked_episodes(&self, options: &ExtractOptions) -> Vec<render::MaskedEpisode> {
+        let _ = options;
+        let tail_start = self.plan.tail.start;
+        self.plan
+            .episodes
+            .iter()
+            .filter(|episode| episode.rows.end <= tail_start)
+            .map(|episode| render::MaskedEpisode {
+                headline: episode.headline.clone(),
+                evt_start: episode.evt_start,
+                evt_end: episode.evt_end,
+                tokens: episode.tokens,
+            })
+            .collect()
+    }
+
     fn render_options(&self, options: &ExtractOptions) -> render::RenderOptions {
         render::RenderOptions {
             budget: options.budget,
@@ -367,6 +385,7 @@ impl Extraction {
             // reader never has to infer it from absent sections.
             semantic: self.report.semantic_state,
             fold_calls: self.report.fold_calls,
+            masked_episodes: self.masked_episodes(options),
             fold_failed_calls: self.report.fold_failed_calls,
             triage: Some(self.triage.clone()),
             guard: self.guard.clone(),
