@@ -7,6 +7,14 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+### Added
+
+- **Prior provider summaries now reach the fold as low-trust seeds** (spec §7.2). If a provider
+  compacted before the chunk being folded, the fold prompt carries those summaries with their event
+  numbers, framed as a hint rather than evidence — a chunk several turns after a compaction boundary
+  previously saw nothing of what came before it. Bounded to the three most recent, 400 tokens each, so
+  a heavily compacted session cannot push the transcript out of the prompt. `fold_user` is version 2.
+
 ## [0.1.0] - 2026-09-11
 
 First release. Reads a coding-agent session from disk and writes a verified, provenance-linked

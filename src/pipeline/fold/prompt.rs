@@ -44,6 +44,7 @@ pub struct Fields {
     pub state: String,
     pub ledger_slice: String,
     pub later_index: String,
+    pub prior_summaries: String,
     pub chunk: String,
     pub range: EvtRange,
     pub rejections: String,
@@ -100,13 +101,14 @@ fn strip_front_matter(body: &str) -> &str {
 pub fn render(template: Template, fields: &Fields, schema: &str) -> String {
     let body = strip_front_matter(template.body());
     let mut out = body.to_string();
-    let substitutions: [(&str, &str); 10] = [
+    let substitutions: [(&str, &str); 11] = [
         ("{{chunk_id}}", &fields.chunk_id),
         ("{{session}}", &fields.session),
         ("{{focus}}", &fields.focus),
         ("{{state}}", &fields.state),
         ("{{ledger_slice}}", &fields.ledger_slice),
         ("{{later_index}}", &fields.later_index),
+        ("{{prior_summaries}}", &fields.prior_summaries),
         ("{{chunk}}", &fields.chunk),
         ("{{rejections}}", &fields.rejections),
         ("{{schema}}", schema),
@@ -148,6 +150,7 @@ mod tests {
             state: "C1 [high] no yaml".into(),
             ledger_slice: "files: a.rs".into(),
             later_index: "e5 evt 90-99".into(),
+            prior_summaries: "- [evt 4] chose cargo-dist".into(),
             chunk: "[user] hello".into(),
             range: EvtRange::new(10, 42),
             rejections: String::new(),
@@ -159,6 +162,7 @@ mod tests {
             "no yaml",
             "a.rs",
             "e5 evt 90-99",
+            "- [evt 4] chose cargo-dist",
             "[user] hello",
         ] {
             assert!(

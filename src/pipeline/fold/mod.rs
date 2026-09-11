@@ -112,6 +112,7 @@ pub fn run(
             state: state.render_for_prompt(),
             ledger_slice: ledger_slice(input.ledgers, range),
             later_index: later_index(input, index),
+            prior_summaries: prior_summaries(input.session, range),
             chunk: chunk_text,
             range,
             rejections: String::new(),
@@ -153,6 +154,7 @@ pub fn run(
             state: state.render_for_prompt(),
             ledger_slice: last_known_state(input.ledgers),
             later_index: "(nothing — this is the end of the session)".to_string(),
+            prior_summaries: prior_summaries(input.session, range),
             chunk: crate::pipeline::mask::render(rows),
             range,
             rejections: String::new(),
@@ -526,6 +528,52 @@ fn last_known_state(ledgers: &Ledgers) -> String {
     }
 }
 
+/// The provider's own compaction summaries, as low-trust seeds for this chunk.
+///
+/// A provider compacts when it is out of room, so its summary is all that
+/// survives of what it chose to discard — lossy, written for a different
+/// purpose, and sometimes wrong. It is worth showing the fold, because a chunk
+/// several turns after the boundary would otherwise see nothing of what came
+/// before it; it is not worth trusting, which is what the prompt says.
+///
+/// Only summaries strictly before this chunk are eligible, newest last, capped
+/// so a heavily compacted session cannot push the transcript out of the prompt.
+/// A boundary whose text the provider kept encrypted, or never wrote, still
+/// appears — the fold should know that history exists and is unreadable.
+fn prior_summaries(session: &Session, range: EvtRange) -> String {
+    /// More than this and the block starts competing with the chunk itself.
+    const MAX: usize = 3;
+    /// Per-summary cap; roughly the size of a chunk-level synopsis.
+    const TOKENS: usize = 400;
+
+    let mut eligible: Vec<&crate::ir::NativeCompaction> = session
+        .native_compactions
+        .iter()
+        .filter(|compaction| compaction.evt < range.start)
+        .collect();
+    // Newest last, so the model reads them in the order they happened.
+    eligible.sort_by_key(|compaction| compaction.evt);
+    let start = eligible.len().saturating_sub(MAX);
+
+    if eligible.is_empty() {
+        return "None before this point.".to_string();
+    }
+
+    eligible[start..]
+        .iter()
+        .map(|compaction| {
+            let body = match &compaction.summary {
+                Some(text) => crate::vendor::codex::truncate::truncate_middle_tokens(text, TOKENS),
+                None => {
+                    "(the provider recorded this boundary but left no readable summary)".to_string()
+                }
+            };
+            format!("- [evt {}] {}", compaction.evt, body.replace('\n', " "))
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
 /// One line per later episode, so the fold does not mark resolved work open.
 fn later_index(input: &FoldInput<'_>, current_chunk: usize) -> String {
     let current_episodes: Vec<usize> = input
@@ -575,6 +623,79 @@ mod tests {
     use super::*;
     use crate::llm::mock::Mock;
     use ops::Op;
+
+    /// Parse the fixture that carries both kinds of Codex compaction.
+    fn windowed_compaction_session() -> Session {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/codex/windowed-compaction.jsonl");
+        crate::adapters::parse_path(&path, 0.5).expect("the fixture parses")
+    }
+
+    #[test]
+    fn prior_summaries_are_offered_as_seeds_only_after_they_happened() {
+        let session = windowed_compaction_session();
+
+        // The first chunk starts before any compaction: nothing to seed.
+        assert_eq!(
+            prior_summaries(&session, EvtRange::new(0, 0)),
+            "None before this point."
+        );
+
+        // A chunk after the legacy reset at evt 1 sees its summary...
+        let seeded = prior_summaries(&session, EvtRange::new(3, 5));
+        assert!(seeded.contains("cargo-dist"), "{seeded}");
+        assert!(seeded.contains("[evt 1]"), "{seeded}");
+        // ...and not the window marker at evt 3, which has not happened yet.
+        assert_eq!(seeded.lines().count(), 1, "{seeded}");
+
+        // A chunk after the window marker sees both. The marker kept no text,
+        // so it is reported as an unreadable boundary rather than dropped: the
+        // fold should still know that history it cannot see exists.
+        let later = prior_summaries(&session, EvtRange::new(4, 5));
+        assert!(later.contains("[evt 1]"), "{later}");
+        assert!(later.contains("[evt 3]"), "{later}");
+        assert!(later.contains("no readable summary"), "{later}");
+    }
+
+    #[test]
+    fn the_low_trust_seed_reaches_the_rendered_fold_prompt() {
+        let session = windowed_compaction_session();
+        let range = EvtRange::new(4, 5);
+        let fields = prompt::Fields {
+            prior_summaries: prior_summaries(&session, range),
+            range,
+            ..Default::default()
+        };
+        let rendered = prompt::render(prompt::Template::FoldUser, &fields, "{}");
+
+        // The framing matters as much as the text: the fold must be told these
+        // are a hint, not evidence, or it will restate a provider summary as a
+        // decision with no source of its own.
+        assert!(rendered.contains("PRIOR PROVIDER SUMMARIES"), "{rendered}");
+        assert!(rendered.contains("never as evidence"), "{rendered}");
+        assert!(rendered.contains("cargo-dist"), "{rendered}");
+        assert!(!rendered.contains("{{prior_summaries}}"), "{rendered}");
+    }
+
+    #[test]
+    fn prior_summaries_are_capped_and_kept_in_chronological_order() {
+        let mut session = windowed_compaction_session();
+        session.native_compactions = (0..6)
+            .map(|n| crate::ir::NativeCompaction {
+                evt: n * 10,
+                summary: Some(format!("summary {n}")),
+                windowed: false,
+            })
+            .collect();
+
+        let rendered = prior_summaries(&session, EvtRange::new(100, 110));
+        let lines: Vec<&str> = rendered.lines().collect();
+        // Three most recent, oldest first.
+        assert_eq!(lines.len(), 3, "{rendered}");
+        assert!(lines[0].contains("summary 3"), "{rendered}");
+        assert!(lines[2].contains("summary 5"), "{rendered}");
+        assert!(!rendered.contains("summary 2"), "{rendered}");
+    }
 
     #[test]
     fn a_backend_failure_warns_instead_of_aborting_the_run() {
