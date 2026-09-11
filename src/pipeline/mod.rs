@@ -488,6 +488,69 @@ pub fn extract(
     })
 }
 
+/// Where an artifact was written, and which file the receiving agent reads.
+#[derive(Debug, Clone)]
+pub struct Written {
+    /// Every file written.
+    pub paths: Vec<PathBuf>,
+    /// The file a receiving agent should open.
+    pub handoff: PathBuf,
+    /// True when the destination was a directory and got the full set.
+    pub directory: bool,
+}
+
+/// Write the artifact where the caller asked, and say what it wrote.
+///
+/// A directory gets the full set; a path ending in `.md` or `.json` gets just
+/// that one file. Shared by the CLI and the TUI so the two cannot disagree
+/// about what a destination means (FR-014).
+pub fn write_destination(
+    extraction: &Extraction,
+    options: &ExtractOptions,
+    path: &Path,
+) -> Result<Written> {
+    let extension = path
+        .extension()
+        .map(|ext| ext.to_string_lossy().into_owned());
+    match extension.as_deref() {
+        Some("md") => {
+            write_one(path, &extraction.markdown(options))?;
+            Ok(Written {
+                paths: vec![path.to_path_buf()],
+                handoff: path.to_path_buf(),
+                directory: false,
+            })
+        }
+        Some("json") => {
+            write_one(path, &to_pretty(&extraction.json(options)))?;
+            Ok(Written {
+                paths: vec![path.to_path_buf()],
+                handoff: path.to_path_buf(),
+                directory: false,
+            })
+        }
+        _ => {
+            let written = write_all(extraction, options, path)?;
+            Ok(Written {
+                paths: written.paths,
+                handoff: path.join("handoff.md"),
+                directory: true,
+            })
+        }
+    }
+}
+
+/// Write one file, creating its parent directory if it needs one.
+fn write_one(path: &Path, content: &str) -> Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|source| Error::io(parent, source))?;
+    }
+    std::fs::write(path, content).map_err(|source| Error::io(path, source))
+}
+
 /// The files `--out <dir>` writes.
 #[derive(Debug)]
 pub struct WrittenFiles {

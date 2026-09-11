@@ -11,8 +11,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::browser::Browser;
+use super::form::Form;
 use super::preview::LedgerPreview;
-use super::{App, PreviewState};
+use super::{App, Mode, PreviewState, RunState};
 use crate::VERSION;
 
 /// Accent colours kept in one place so the two screens cannot drift.
@@ -41,9 +42,12 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
         .split(rows[1]);
     list(frame, body[0], &app.browser);
-    preview(frame, body[1], &app.browser, app.preview_state());
+    match &app.form {
+        Some(form) => extract_pane(frame, body[1], form, &app.run),
+        None => preview(frame, body[1], &app.browser, app.preview_state()),
+    }
 
-    footer(frame, rows[2], &app.browser, app.searching());
+    footer(frame, rows[2], &app.browser, app.mode);
 }
 
 fn header(frame: &mut Frame, area: Rect, browser: &Browser) {
@@ -272,14 +276,148 @@ fn contents(lines: &mut Vec<Line<'static>>, ledger: &LedgerPreview) {
     }
 }
 
-fn footer(frame: &mut Frame, area: Rect, browser: &Browser, search: bool) {
-    let keys = if search {
-        " type to filter · enter keep · esc clear "
-    } else {
-        " j/k move · / search · a agent · r date · p project · q quit "
+/// The extraction form, and whatever the last run did.
+///
+/// Every field here was read from clap by `form.rs`: the flag, the value, and
+/// whether it is a toggle, a choice, or text. Nothing in this function decides
+/// what a field *is*, which is what keeps the form and the CLI the same thing.
+fn extract_pane(frame: &mut Frame, area: Rect, form: &Form, run: &RunState) {
+    let block = Block::default().borders(Borders::ALL).title(" extract ");
+    let inner = area.height.saturating_sub(2) as usize;
+
+    // The run state goes first so a result can never be scrolled off the bottom,
+    // and the focused field's help goes last because it is the least costly thing
+    // to lose on a short terminal.
+    let mut lines = run_lines(run);
+    lines.push(Line::default());
+    let list_height = inner.saturating_sub(lines.len() + 2).max(1);
+    let first = form.scroll_for(list_height);
+
+    for (index, field) in form
+        .fields()
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(list_height)
+    {
+        let focused = index == form.focus();
+        let text = format!(
+            "{} {:<20} {}",
+            if focused { "▌" } else { " " },
+            field.flag,
+            field.shown()
+        );
+        let style = if focused {
+            Style::default()
+                .bg(ACCENT)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::styled(truncate(&text, 240), style));
+    }
+
+    lines.push(Line::default());
+    if let Some(field) = form.focused() {
+        lines.push(Line::styled(
+            format!(" {}", truncate(&field.help, 300)),
+            Style::default().fg(DIM),
+        ));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+/// What the extraction pane says about the run.
+fn run_lines(run: &RunState) -> Vec<Line<'static>> {
+    match run {
+        RunState::Idle => vec![Line::styled(
+            " ready · enter runs the extraction",
+            Style::default().fg(DIM),
+        )],
+        RunState::Running {
+            stage,
+            message,
+            lines,
+        } => {
+            let mut out = vec![Line::styled(
+                format!(" running · {stage}"),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )];
+            if !message.is_empty() {
+                out.push(Line::styled(
+                    format!(" {message}"),
+                    Style::default().fg(DIM),
+                ));
+            }
+            // The last few stages, so the pane shows movement rather than one
+            // word that looks stuck (FR-013).
+            for line in lines.iter().rev().take(3).rev() {
+                out.push(Line::styled(format!(" {line}"), Style::default().fg(DIM)));
+            }
+            out
+        }
+        RunState::Done(outcome) => {
+            let mut out = vec![Line::styled(
+                format!(
+                    " done · {} · {} of {} events live",
+                    outcome.reference, outcome.live_events, outcome.total_events
+                ),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )];
+            for path in &outcome.paths {
+                out.push(Line::styled(
+                    format!(" wrote {}", path.display()),
+                    Style::default().fg(DIM),
+                ));
+            }
+            out.push(Line::raw(format!(
+                " handoff  {}",
+                outcome.handoff.display()
+            )));
+            for warning in &outcome.warnings {
+                out.push(Line::styled(
+                    format!(" warning: {warning}"),
+                    Style::default().fg(WARN),
+                ));
+            }
+            if let Some(warning) = &outcome.git_warning {
+                // The CLI's own sentence, produced by the CLI's own function, so
+                // the two cannot drift (FR-015).
+                out.push(Line::styled(
+                    format!(" {warning}"),
+                    Style::default().fg(WARN),
+                ));
+            }
+            out
+        }
+        RunState::Failed(reason) => vec![
+            Line::styled(
+                " failed",
+                Style::default().fg(WARN).add_modifier(Modifier::BOLD),
+            ),
+            Line::styled(format!(" {reason}"), Style::default().fg(WARN)),
+        ],
+    }
+}
+
+fn footer(frame: &mut Frame, area: Rect, browser: &Browser, mode: Mode) {
+    let keys = match mode {
+        Mode::Search => " type to filter · enter keep · esc clear ",
+        Mode::Form => " ↑/↓ field · space toggle · ←/→ choose · enter run · esc back ",
+        Mode::Browse => " j/k move · / search · a agent · r date · p project · e extract · q quit ",
     };
     let lines = vec![
-        Line::styled(keys, Style::default().fg(if search { ACCENT } else { DIM })),
+        Line::styled(
+            keys,
+            Style::default().fg(if mode == Mode::Browse { DIM } else { ACCENT }),
+        ),
         Line::from(vec![
             Span::styled(" filters: ", Style::default().fg(DIM)),
             Span::raw(browser.filter_summary()),
@@ -319,6 +457,7 @@ fn truncate(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use crate::adapters::discovery::SessionSummary;
+    use crate::cli::GlobalArgs;
     use crate::tui::PreviewState;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -341,7 +480,7 @@ mod tests {
     }
 
     fn app() -> App {
-        App::new(vec![summary()], 100, None)
+        App::new(vec![summary()], 100, None, GlobalArgs::default())
     }
 
     fn ledger() -> LedgerPreview {
@@ -467,6 +606,80 @@ mod tests {
         // Nothing to report means no compaction or diagnostic line at all.
         assert!(!text.contains("provider compaction"), "{text}");
         assert!(!text.contains("diagnostic(s)"), "{text}");
+    }
+
+    #[test]
+    fn the_form_lists_the_cli_flags_and_shows_the_focused_help() {
+        let mut app = app();
+        app.open_form();
+        let text = screen(&app, 150, 44);
+
+        assert!(text.contains("extract"), "{text}");
+        for flag in ["--mode", "--llm", "--budget", "--out", "--max-bad-lines"] {
+            assert!(text.contains(flag), "missing {flag} in:\n{text}");
+        }
+        // The first field is focused, so its help is on screen.
+        assert!(text.contains("pipeline to run"), "{text}");
+        // A choice field shows the value clap defaulted it to.
+        assert!(text.contains("standard"), "{text}");
+    }
+
+    #[test]
+    fn a_finished_run_says_where_the_artifact_went() {
+        let mut app = app();
+        app.open_form();
+        app.run = RunState::Done(Box::new(crate::tui::work::Outcome {
+            reference: "claude:1367d688".into(),
+            handoff: PathBuf::from("/code/.sctxx/handoff.md"),
+            paths: vec![PathBuf::from("/code/.sctxx/handoff.md")],
+            warnings: vec!["2 events had no timestamp".into()],
+            git_warning: Some("warning: /code/.sctxx is not ignored by git".into()),
+            live_events: 6_753,
+            total_events: 14_151,
+        }));
+        let text = screen(&app, 150, 44);
+        assert!(text.contains("done"), "{text}");
+        assert!(text.contains("claude:1367d688"), "{text}");
+        assert!(text.contains("6753 of 14151"), "{text}");
+        assert!(text.contains("/code/.sctxx/handoff.md"), "{text}");
+        assert!(text.contains("no timestamp"), "{text}");
+        assert!(
+            text.contains("not ignored by git"),
+            "the CLI's own warning must reach the pane (FR-015):\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_failed_run_shows_the_reason_and_leaves_the_form_up() {
+        let mut app = app();
+        app.open_form();
+        app.run = RunState::Failed("unknown --redact `sideways`".into());
+        let text = screen(&app, 150, 44);
+        assert!(text.contains("failed"), "{text}");
+        assert!(text.contains("sideways"), "{text}");
+        assert!(
+            text.contains("--mode"),
+            "the form must still be there to fix:\n{text}"
+        );
+    }
+
+    #[test]
+    fn progress_is_visible_while_a_run_is_going() {
+        let mut app = app();
+        app.open_form();
+        app.run = RunState::Running {
+            stage: "fold".into(),
+            message: "chunk 3 of 9".into(),
+            lines: vec![
+                "[parse] 900 events".into(),
+                "[ledgers] 12 files".into(),
+                "[fold] chunk 3 of 9".into(),
+            ],
+        };
+        let text = screen(&app, 150, 44);
+        assert!(text.contains("running"), "{text}");
+        assert!(text.contains("fold"), "{text}");
+        assert!(text.contains("chunk 3 of 9"), "{text}");
     }
 
     #[test]

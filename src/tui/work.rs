@@ -1,18 +1,26 @@
 //! The one background thread the TUI owns.
 //!
-//! Reading a session takes seconds, so it cannot happen on the thread that
-//! draws. One worker, first in first out, and a *generation counter* rather than
-//! a queue of intentions: `j` is a key people hold down, and holding it must not
-//! queue twenty parses of sessions nobody will still be looking at when they
-//! finish. A job whose session is no longer wanted is dropped before it starts,
-//! and its answer is dropped again before it is sent.
+//! Reading a session takes seconds and extracting one takes longer, so neither
+//! can happen on the thread that draws. One worker, first in first out, and a
+//! *generation counter* for previews rather than a queue of intentions: `j` is a
+//! key people hold down, and holding it must not queue twenty reads of sessions
+//! nobody will still be looking at when they finish. A preview whose session is
+//! no longer wanted is dropped before it starts, and its answer is dropped again
+//! before it is sent.
+//!
+//! An extraction is deliberately **not** superseded: it is started by an explicit
+//! keypress, it is the thing the developer is waiting for, and its progress is
+//! the whole point of the pane. It also cannot be cancelled mid-pipeline; the
+//! pane says so rather than pretending.
 //!
 //! The thread is not joined on shutdown. `q` must be instant, and the work in
-//! flight is a read with no side effect, so the process simply exits and takes
-//! the thread with it.
+//! flight is a read or a write of files the developer asked for, so the process
+//! exits and takes the thread with it.
 
 use super::preview::{self, LedgerPreview};
 use crate::adapters::discovery::SessionSummary;
+use crate::pipeline::{self, ExtractOptions};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -22,10 +30,37 @@ use std::sync::mpsc::{self, Receiver, Sender};
 type Loader = Box<dyn Fn(&SessionSummary) -> crate::error::Result<LedgerPreview> + Send>;
 
 /// A request.
-struct Job {
-    /// Which request this is. Only the newest generation is worth answering.
-    generation: u64,
-    summary: SessionSummary,
+enum Job {
+    /// Read one session's ledgers. Superseded by a newer preview request.
+    Ledgers {
+        /// Which request this is. Only the newest generation is worth answering.
+        generation: u64,
+        summary: SessionSummary,
+    },
+    /// Run an extraction and write it where the developer said.
+    Extract {
+        summary: SessionSummary,
+        options: Box<ExtractOptions>,
+        out: PathBuf,
+    },
+}
+
+/// What an extraction produced.
+#[derive(Debug, Clone)]
+pub struct Outcome {
+    /// The session this came from, as `claude:1367d688`.
+    pub reference: String,
+    /// The file a receiving agent should read.
+    pub handoff: PathBuf,
+    /// Everything that was written.
+    pub paths: Vec<PathBuf>,
+    /// Notes the pipeline raised about its own output.
+    pub warnings: Vec<String>,
+    /// The CLI's own "this directory is not ignored by git" warning, produced by
+    /// the CLI's own function so the wording cannot drift (FR-015).
+    pub git_warning: Option<String>,
+    pub live_events: usize,
+    pub total_events: usize,
 }
 
 /// An answer.
@@ -36,18 +71,24 @@ pub enum Done {
         id: String,
         result: std::result::Result<Box<LedgerPreview>, String>,
     },
+    /// One stage of a running extraction (spec FR-013's stage names).
+    Progress { stage: String, message: String },
+    /// An extraction finished, or failed.
+    Extracted {
+        result: std::result::Result<Box<Outcome>, String>,
+    },
 }
 
 /// The handle the UI holds. Dropping it ends the worker.
 pub struct Worker {
     jobs: Sender<Job>,
     done: Receiver<Done>,
-    /// The newest request. Anything older is stale.
+    /// The newest preview request. Anything older is stale.
     generation: Arc<AtomicU64>,
 }
 
 impl Worker {
-    /// Start the real worker: [`preview::load`] on its own thread.
+    /// Start the real worker on its own thread.
     pub fn spawn() -> Self {
         Self::spawn_with(Box::new(preview::load))
     }
@@ -60,9 +101,9 @@ impl Worker {
         let worker_generation = Arc::clone(&generation);
 
         std::thread::Builder::new()
-            .name("sctxx-preview".to_string())
+            .name("sctxx-work".to_string())
             // A thread that cannot start is not worth failing the TUI over: the
-            // pane stays on its loading line and everything else still works.
+            // pane stays on its working line and everything else still works.
             .spawn(move || run(job_rx, done_tx, &worker_generation, &loader))
             .ok();
 
@@ -78,9 +119,18 @@ impl Worker {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         // A send can only fail if the worker thread died, which would leave the
         // pane on its loading line rather than break the UI.
-        let _ = self.jobs.send(Job {
+        let _ = self.jobs.send(Job::Ledgers {
             generation,
             summary: summary.clone(),
+        });
+    }
+
+    /// Run an extraction. Only the UI decides when this is legal.
+    pub fn extract(&self, summary: &SessionSummary, options: ExtractOptions, out: PathBuf) {
+        let _ = self.jobs.send(Job::Extract {
+            summary: summary.clone(),
+            options: Box::new(options),
+            out,
         });
     }
 
@@ -99,24 +149,99 @@ impl Worker {
 fn run(jobs: Receiver<Job>, done: Sender<Done>, generation: &AtomicU64, loader: &Loader) {
     // Ends when the UI drops its handle.
     while let Ok(job) = jobs.recv() {
-        // Superseded while queued: the developer has already moved on.
-        if generation.load(Ordering::SeqCst) != job.generation {
-            continue;
-        }
+        match job {
+            Job::Ledgers {
+                generation: wanted,
+                summary,
+            } => {
+                // Superseded while queued: the developer has already moved on.
+                if generation.load(Ordering::SeqCst) != wanted {
+                    continue;
+                }
 
-        let id = job.summary.id.clone();
-        let result = loader(&job.summary)
-            .map(Box::new)
-            .map_err(|error| error.to_string());
+                let id = summary.id.clone();
+                let result = loader(&summary)
+                    .map(Box::new)
+                    .map_err(|error| error.to_string());
 
-        // Superseded while reading: the answer is already out of date, so do
-        // not spend the UI's attention on it.
-        if generation.load(Ordering::SeqCst) != job.generation {
-            continue;
+                // Superseded while reading: the answer is already out of date,
+                // so do not spend the UI's attention on it.
+                if generation.load(Ordering::SeqCst) != wanted {
+                    continue;
+                }
+                if done.send(Done::Ledgers { id, result }).is_err() {
+                    break;
+                }
+            }
+            Job::Extract {
+                summary,
+                options,
+                out,
+            } => {
+                let result = extract(&summary, &options, &out, &done)
+                    .map(Box::new)
+                    .map_err(|error| error.to_string());
+                if done.send(Done::Extracted { result }).is_err() {
+                    break;
+                }
+            }
         }
-        if done.send(Done::Ledgers { id, result }).is_err() {
-            break;
-        }
+    }
+}
+
+/// Run the pipeline and write the artifact, reporting each stage as it starts.
+///
+/// This is the same library call the CLI makes; the only difference is where the
+/// progress and the payload go. Nothing here writes to stdout, which is what
+/// keeps FR-004 true: a TUI never puts an artifact on the terminal.
+fn extract(
+    summary: &SessionSummary,
+    options: &ExtractOptions,
+    out: &std::path::Path,
+    done: &Sender<Done>,
+) -> crate::error::Result<Outcome> {
+    let mut progress = |stage: &str, message: &str| {
+        let _ = done.send(Done::Progress {
+            stage: stage.to_string(),
+            message: message.to_string(),
+        });
+    };
+
+    let extraction = pipeline::extract(summary, options, &mut progress)?;
+    let destination = resolve_destination(out, summary);
+    let written = pipeline::write_destination(&extraction, options, &destination)?;
+
+    Ok(Outcome {
+        reference: summary.reference(),
+        handoff: written.handoff,
+        paths: written.paths,
+        warnings: extraction.report.warnings.clone(),
+        git_warning: written
+            .directory
+            .then(|| crate::cli::extract::git_track_warning(&destination))
+            .flatten(),
+        live_events: extraction.session.active.len(),
+        total_events: extraction.session.events.len(),
+    })
+}
+
+/// Where a relative `--out` lands.
+///
+/// A developer running the TUI from anywhere means "next to the project this
+/// session was about", not "next to wherever sctxx happens to be". An absolute
+/// path, or a session whose directory is gone, is left exactly as given.
+fn resolve_destination(out: &std::path::Path, summary: &SessionSummary) -> PathBuf {
+    if out.is_absolute() {
+        return out.to_path_buf();
+    }
+    let Some(cwd) = summary.cwd.as_deref() else {
+        return out.to_path_buf();
+    };
+    let base = std::path::Path::new(cwd);
+    if base.is_dir() {
+        base.join(out)
+    } else {
+        out.to_path_buf()
     }
 }
 
@@ -206,6 +331,7 @@ mod tests {
                     "the answer must belong to the session that was asked about"
                 );
             }
+            other => panic!("expected ledgers, got {other:?}"),
         }
     }
 
@@ -226,6 +352,7 @@ mod tests {
         let answers = wait_for_answers(&gated.worker, 1);
         match &answers[0] {
             Done::Ledgers { id, .. } => assert_eq!(id, "third"),
+            other => panic!("expected ledgers, got {other:?}"),
         }
 
         // `first` was already in flight and is dropped on completion; `second`
@@ -254,6 +381,7 @@ mod tests {
             Done::Ledgers { result, .. } => {
                 assert!(result.is_err(), "the failure must survive the thread hop");
             }
+            other => panic!("expected ledgers, got {other:?}"),
         }
     }
 

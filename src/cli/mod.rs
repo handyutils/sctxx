@@ -11,7 +11,9 @@
 
 mod discover;
 mod doctor;
-mod extract;
+// Reachable so the TUI's extraction form can build itself from clap's own
+// definition of the command instead of restating it (SC-004).
+pub(crate) mod extract;
 mod redact;
 mod schema;
 mod skill;

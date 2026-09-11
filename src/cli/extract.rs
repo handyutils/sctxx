@@ -17,7 +17,7 @@ pub struct ExtractArgs {
     reference: String,
 
     /// How much of the pipeline to run: fast, standard, or full.
-    #[arg(long, default_value = "standard")]
+    #[arg(long, default_value = "standard", value_parser = ["fast", "standard", "full"])]
     mode: String,
 
     /// Backend: none, auto, cli:<agent>, api:<provider>[/<model>], or mock.
@@ -58,7 +58,7 @@ pub struct ExtractArgs {
     out: Option<PathBuf>,
 
     /// Output format when writing to stdout: md, json, or both.
-    #[arg(long, default_value = "md")]
+    #[arg(long, default_value = "md", value_parser = ["md", "json", "both"])]
     format: String,
 
     /// Layers to render, e.g. `L0,L1`.
@@ -78,7 +78,7 @@ pub struct ExtractArgs {
     keep_system: bool,
 
     /// Redaction level: default, strict, or off (off applies to --llm none only).
-    #[arg(long, default_value = "default")]
+    #[arg(long, default_value = "default", value_parser = ["default", "strict", "off"])]
     redact: String,
 
     /// Parallel premap calls.
@@ -86,7 +86,7 @@ pub struct ExtractArgs {
     concurrency: usize,
 
     /// Progress format on stderr: text or json.
-    #[arg(long, default_value = "text")]
+    #[arg(long, default_value = "text", value_parser = ["text", "json"])]
     progress: String,
 
     /// Print the plan (chunks, budgets, estimated tokens) and exit.
@@ -113,41 +113,86 @@ pub struct ExtractArgs {
     max_bad_lines: f64,
 }
 
-pub fn run(args: &ExtractArgs, global: &GlobalArgs) -> Result<i32> {
-    let mode = Mode::parse(&args.mode)?;
-    let llm = Selection::parse(&args.llm)?;
-    let redact = parse_redact(&args.redact, &llm, global)?;
-    let layers = render::Layers::parse(&args.layers)?;
-    if !(0.0..=1.0).contains(&args.max_bad_lines) {
-        return Err(Error::Usage(format!(
-            "--max-bad-lines must be a fraction between 0 and 1 (got {}); 0.02 tolerates 2%",
-            args.max_bad_lines
-        )));
+impl ExtractArgs {
+    /// The clap definition of `sctxx extract`.
+    ///
+    /// Feature-gated because only the TUI reads a command definition back; the
+    /// command line is one already. The minimal build must stay free of code
+    /// that exists for a feature it does not have.
+    ///
+    /// The TUI's extraction form is built from *this*, not from a list of its
+    /// own, which is what stops the form and the CLI from drifting apart
+    /// (SC-004). Anything the form can express arrives here as argv and is
+    /// parsed by clap, so the CLI stays the only authority on what is valid.
+    #[cfg(feature = "tui")]
+    pub fn command() -> clap::Command {
+        <Self as clap::Args>::augment_args(clap::Command::new("extract"))
     }
+
+    /// Parse an argv the way the command line would, for callers that assemble
+    /// one rather than receiving it.
+    #[cfg(feature = "tui")]
+    pub fn parse_argv<I, T>(argv: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let matches = Self::command()
+            .try_get_matches_from(argv)
+            .map_err(|error| Error::Usage(error.to_string()))?;
+        <Self as clap::FromArgMatches>::from_arg_matches(&matches)
+            .map_err(|error| Error::Usage(error.to_string()))
+    }
+
+    /// Validate the arguments and turn them into pipeline options.
+    ///
+    /// Shared with `run`, so a form submission and a command line are validated
+    /// by exactly the same code and cannot disagree about what is legal.
+    pub fn options(&self, global: &GlobalArgs) -> Result<ExtractOptions> {
+        self.build_options(global)
+    }
+
+    fn build_options(&self, global: &GlobalArgs) -> Result<ExtractOptions> {
+        let mode = Mode::parse(&self.mode)?;
+        let llm = Selection::parse(&self.llm)?;
+        let redact = parse_redact(&self.redact, &llm, global)?;
+        let layers = render::Layers::parse(&self.layers)?;
+        if !(0.0..=1.0).contains(&self.max_bad_lines) {
+            return Err(Error::Usage(format!(
+                "--max-bad-lines must be a fraction between 0 and 1 (got {}); 0.02 tolerates 2%",
+                self.max_bad_lines
+            )));
+        }
+        Ok(ExtractOptions {
+            mode,
+            llm,
+            budget: self.budget,
+            tail_tokens: self.tail,
+            chunk_tokens: self.chunk_tokens,
+            focus: self.focus.clone(),
+            repo: self.repo.clone(),
+            verify: !self.no_verify,
+            strict: self.strict,
+            layers,
+            include_sidechains: self.include_sidechains,
+            since_compact: self.since_compact,
+            keep_reasoning: self.keep_reasoning,
+            keep_system: self.keep_system,
+            redact,
+            concurrency: self.concurrency,
+            max_bad_line_rate: self.max_bad_lines,
+        })
+    }
+}
+
+pub fn run(args: &ExtractArgs, global: &GlobalArgs) -> Result<i32> {
+    let options = args.options(global)?;
+    let mode = options.mode;
+    let llm = options.llm.clone();
     if mode == Mode::Full {
         global
             .note("note: --mode full currently behaves as standard; the probe loop is roadmap M5.");
     }
-
-    let options = ExtractOptions {
-        mode,
-        llm: llm.clone(),
-        budget: args.budget,
-        tail_tokens: args.tail,
-        chunk_tokens: args.chunk_tokens,
-        focus: args.focus.clone(),
-        repo: args.repo.clone(),
-        verify: !args.no_verify,
-        strict: args.strict,
-        layers,
-        include_sidechains: args.include_sidechains,
-        since_compact: args.since_compact,
-        keep_reasoning: args.keep_reasoning,
-        keep_system: args.keep_system,
-        redact,
-        concurrency: args.concurrency,
-        max_bad_line_rate: args.max_bad_lines,
-    };
 
     let reference = discovery::parse_reference(&args.reference)?;
     let resolve_options = global.resolve_options(args.any_project, true);
@@ -211,38 +256,16 @@ fn write_output(
     path: &std::path::Path,
     global: &GlobalArgs,
 ) -> Result<i32> {
-    let extension = path
-        .extension()
-        .map(|ext| ext.to_string_lossy().into_owned());
-    match extension.as_deref() {
-        Some("md") => {
-            write_file(path, &extraction.markdown(options))?;
-            global.note(&format!("wrote {}", path.display()));
-        }
-        Some("json") => {
-            let json = serde_json::to_string_pretty(&extraction.json(options))
-                .map_err(|error| Error::Other(error.to_string()))?;
-            write_file(path, &json)?;
-            global.note(&format!("wrote {}", path.display()));
-        }
-        _ => {
-            let written = pipeline::write_all(extraction, options, path)?;
-            global.note(&format!(
-                "wrote {}",
-                written
-                    .paths
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            ));
-            warn_if_git_would_track(path, global);
-            // The path the receiving agent should read is the payload.
-            out(&path.join("handoff.md").to_string_lossy());
-            return Ok(0);
-        }
+    let written = pipeline::write_destination(extraction, options, path)?;
+    for file in &written.paths {
+        global.note(&format!("wrote {}", file.display()));
     }
-    out(&path.to_string_lossy());
+    // Only a directory can be surprising to git; a named file is deliberate.
+    if written.directory {
+        warn_if_git_would_track(path, global);
+    }
+    // The path the receiving agent should read is the payload.
+    out(&written.handoff.to_string_lossy());
     Ok(0)
 }
 
@@ -251,27 +274,23 @@ fn write_output(
 /// An artifact quotes the session: user messages verbatim, file paths, error
 /// output. A `git add -A` in the user's project would commit that, and push it.
 /// sctxx does not edit the user's git config on its own — it says what to run.
-fn warn_if_git_would_track(path: &std::path::Path, global: &GlobalArgs) {
+pub fn git_track_warning(path: &std::path::Path) -> Option<String> {
     if pipeline::reconcile::is_git_ignored(path) != Some(false) {
-        return;
+        return None;
     }
     let shown = path.to_string_lossy();
-    global.note(&format!(
+    Some(format!(
         "warning: {shown} is not ignored by git, and it holds this session's content.\n\
          \x20        Keep it out of the repository with:\n\
          \x20          echo '{shown}/' >> \"$(git rev-parse --git-dir)/info/exclude\"\n\
          \x20        (or add it to .gitignore if you mean to commit the ignore rule)"
-    ));
+    ))
 }
 
-fn write_file(path: &std::path::Path, content: &str) -> Result<()> {
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent).map_err(|source| Error::io(parent, source))?;
+fn warn_if_git_would_track(path: &std::path::Path, global: &GlobalArgs) {
+    if let Some(warning) = git_track_warning(path) {
+        global.note(&warning);
     }
-    std::fs::write(path, content).map_err(|source| Error::io(path, source))
 }
 
 /// `--dry-run`: show the plan and the cost before spending anything.

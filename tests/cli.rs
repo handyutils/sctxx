@@ -784,3 +784,42 @@ fn tui_is_a_top_level_flag_only() {
         stderr_of(&after_subcommand)
     );
 }
+
+/// A named file destination is deliberate, so it gets that one file and no
+/// git-ignore warning — and it is the branch `pipeline::write_destination`
+/// newly owns for both the CLI and the TUI.
+#[test]
+fn extract_to_a_named_file_writes_only_that_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in ["handoff.md", "handoff.json"] {
+        let out = dir.path().join(name);
+        let output = sctxx()
+            .args(["extract"])
+            .arg(fixtures().join("claude/basic.jsonl"))
+            .args(["--llm", "none", "--no-verify", "--out"])
+            .arg(&out)
+            .output()
+            .expect("run");
+
+        assert!(output.status.success(), "{}", stderr_of(&output));
+        assert!(out.is_file(), "{name} must exist");
+        assert!(
+            std::fs::metadata(&out).expect("metadata").len() > 0,
+            "{name} must not be empty"
+        );
+        // The file itself is the payload, and there is nothing to warn about.
+        assert_eq!(stdout_of(&output).trim(), out.display().to_string());
+        assert!(
+            !stderr_of(&output).contains("not ignored by git"),
+            "a named file is not a surprising directory: {}",
+            stderr_of(&output)
+        );
+        // Exactly one file, not a directory of them.
+        for sibling in ["state.json", "ledgers.json", "report.json"] {
+            assert!(
+                !dir.path().join(sibling).exists(),
+                "{sibling} must not be written beside a named file"
+            );
+        }
+    }
+}

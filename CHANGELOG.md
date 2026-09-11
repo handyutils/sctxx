@@ -27,6 +27,15 @@ bump and a compatibility note.
   while it works, a 150 ms settle delay keeps a held `j` from queuing reads for sessions you are
   already past, a superseded read is dropped before it starts, and results are cached so returning to
   a session is instant. A session that cannot be read shows why and stays selectable.
+- **`sctxx --tui` can extract.** `e` opens an extraction form and `enter` runs it. The form is built
+  from clap's own definition of `extract`, and submitting goes back through clap, so it cannot gain a
+  field the CLI does not have, lose one it does, or accept a value the CLI would reject — there is a
+  test that fails if the form and the command line ever disagree. Progress streams into the pane stage
+  by stage, and when it finishes the pane reports every file written, the handoff path, and the CLI's
+  own "not ignored by git" warning, through the CLI's own function rather than a second copy of the
+  wording.
+  A relative destination is resolved against the session's project, which is what a developer means by
+  `.sctxx/` when they opened the TUI from somewhere else.
 
 ### Changed
 
