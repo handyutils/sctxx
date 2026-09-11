@@ -89,24 +89,51 @@ impl Default for SegmentOptions {
 /// same session's human turns, failures, plans and final answers fit in a
 /// digest of one. Neither is free, but only one of them finishes.
 pub fn digest(rows: &[Row], tokens: usize) -> Vec<Row> {
-    let mut keep = vec![false; rows.len()];
+    // Nothing worth keeping costs less than this, so a tier that cannot fit even
+    // a fragment stops rather than leaving a stub.
+    const MIN_BOUNDARY_TOKENS: usize = 40;
+
+    let mut chosen: Vec<(usize, Row)> = Vec::new();
+    let mut taken = vec![false; rows.len()];
     let mut remaining = tokens;
     for tier in Tier::ALL {
         // Newest first within the tier, so a budget that cannot hold everything
         // holds the most recent thing that mattered.
         for (index, row) in rows.iter().enumerate().rev() {
-            if row.tier != tier || keep[index] || row.tokens > remaining {
+            if row.tier != tier || taken[index] {
                 continue;
             }
-            keep[index] = true;
+            if row.tokens > remaining {
+                // The boundary item is truncated rather than dropped, which is
+                // Codex's rule at the same seam (`build_compacted_history` keeps
+                // the newest messages that fit and middle-truncates the one that
+                // does not). A partial user turn is worth more than a clean gap,
+                // because the gap is where the instruction was.
+                if remaining >= MIN_BOUNDARY_TOKENS {
+                    // `truncate_middle_tokens` documents its result as "at most
+                    // max_bytes **plus the marker**", so the marker is paid for
+                    // out of the budget here rather than overshooting it.
+                    const MARKER_TOKENS: usize = 12;
+                    let text = crate::vendor::codex::truncate::truncate_middle_tokens(
+                        &row.text,
+                        remaining.saturating_sub(MARKER_TOKENS),
+                    );
+                    let mut trimmed = row.clone();
+                    trimmed.tokens = crate::vendor::codex::truncate::approx_token_count(&text);
+                    trimmed.text = text;
+                    taken[index] = true;
+                    chosen.push((index, trimmed));
+                }
+                break;
+            }
+            taken[index] = true;
             remaining -= row.tokens;
+            chosen.push((index, row.clone()));
         }
     }
-    rows.iter()
-        .zip(keep)
-        .filter(|(_, keep)| *keep)
-        .map(|(row, _)| row.clone())
-        .collect()
+    // Source order, not tier order: a reader still needs a chronology.
+    chosen.sort_by_key(|(index, _)| *index);
+    chosen.into_iter().map(|(_, row)| row).collect()
 }
 
 #[cfg(test)]
@@ -139,10 +166,25 @@ mod digest_tests {
     }
 
     #[test]
-    fn a_row_is_kept_whole_or_not_at_all() {
-        let rows = vec![row(1, Tier::User, 100)];
-        assert!(digest(&rows, 99).is_empty());
-        assert_eq!(digest(&rows, 100).len(), 1);
+    fn the_boundary_row_is_truncated_rather_than_dropped() {
+        // Codex's rule at the same seam: the newest that fit are kept whole and
+        // the one that does not is middle-truncated, because the sentence that
+        // did not fit is where the instruction was.
+        let mut long = row(1, Tier::User, 10_000);
+        // Long enough that truncating it actually leaves a marker.
+        long.text = "never push to main and always run the formatter first ".repeat(40);
+        let rows = vec![long];
+        let digest = digest(&rows, 60);
+        assert_eq!(digest.len(), 1, "the boundary row must survive");
+        assert!(digest[0].tokens <= 60, "and must fit: {}", digest[0].tokens);
+        assert!(digest[0].text.contains("truncated"), "{}", digest[0].text);
+    }
+
+    #[test]
+    fn a_row_below_the_boundary_floor_is_not_worth_a_stub() {
+        let mut long = row(1, Tier::User, 10_000);
+        long.text = "never push to main and always run the formatter first ".repeat(40);
+        assert!(digest(&[long], 10).is_empty());
     }
 }
 

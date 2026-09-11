@@ -25,6 +25,9 @@ bump and a compatibility note.
 - `sctxx` now reports fold progress per chunk on stderr. A 40-chunk fold against a real backend runs
   for hours and previously printed nothing between "40 chunk(s) to fold" and the end; a silent
   terminal for ninety minutes is indistinguishable from a hang.
+- The digest keeps its boundary row by truncating it rather than dropping it, which is Codex's rule
+  at the same seam (`build_compacted_history` keeps the newest messages that fit and middle-truncates
+  the one that does not). The sentence that did not fit is where the instruction was.
 - **L3 indexes every episode the artifact did not carry verbatim.** The artifact keeps a recency
   tail and summarises the rest, which drops ~820,000 tokens of a real session. Selection is the
   right call — masking old observations matches or beats LLM summarisation on SWE-bench Verified at
@@ -43,6 +46,12 @@ bump and a compatibility note.
 
 ### Changed
 
+- The README no longer implies the fold is the quality path. Surveyed: nothing is proven better than a
+  tuned recency window, no production OSS coding agent attributes a benchmark score to its compaction
+  method, and **no published result shows an LLM summary beating selection plus addressable retrieval
+  for a finished transcript handed to a different agent** — which is sctxx's problem. Selection is
+  cheap and reachable; the fold is an unmeasured hypothesis. See
+  `docs/research/2026-09-11-best-proven-oss-algorithm.md`.
 - **`--mode fast` is now the default, and `fast` now means one call.** It previously skipped premap
   but still folded all 40 chunks in sequence, which on a real 103,757-event session is 807,372
   tokens across 81 model calls — hours against a CLI backend, and not a product. `fast` now folds a
