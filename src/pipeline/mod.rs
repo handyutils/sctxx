@@ -16,6 +16,7 @@
 //! therefore behaves as `standard` and says so on stderr.
 
 pub mod artifact;
+pub mod bench;
 pub mod finalize;
 pub mod fold;
 pub mod ledgers;

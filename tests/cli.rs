@@ -8,6 +8,44 @@
 use assert_cmd::Command;
 use std::path::{Path, PathBuf};
 
+#[test]
+fn bench_refuses_an_arm_that_is_not_one_and_a_run_with_no_reader() {
+    // Two ways the benchmark can be misused, and both have to say why rather
+    // than produce an empty table. A benchmark that silently measures nothing is
+    // worse than one that does not run.
+    Command::cargo_bin("sctxx")
+        .expect("binary")
+        .args([
+            "bench",
+            "claude:last",
+            "--llm",
+            "none",
+            "--arms",
+            "tail,everything",
+        ])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicates::str::contains("unknown arm"));
+
+    // No backend means no successor agent, so there is nothing to measure.
+    Command::cargo_bin("sctxx")
+        .expect("binary")
+        .args([
+            "bench",
+            fixtures()
+                .join("claude/basic.jsonl")
+                .to_str()
+                .expect("path"),
+            "--llm",
+            "none",
+        ])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicates::str::contains("successor"));
+}
+
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }

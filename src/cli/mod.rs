@@ -9,6 +9,7 @@
 //!   on them: 3 means "ambiguous, here are the candidates", 4 means "not
 //!   found", 6 means "no LLM backend".
 
+mod bench;
 mod discover;
 mod doctor;
 mod handoff;
@@ -130,6 +131,8 @@ enum Command {
     Doctor,
     /// Update this copy of sctxx the way it was installed.
     Update(update::UpdateArgs),
+    /// Measure whether a handoff artifact actually hands anything off.
+    Bench(Box<bench::BenchArgs>),
 }
 
 /// Parse arguments and run. Returns the process exit code.
@@ -183,6 +186,7 @@ fn dispatch(cli: &Cli) -> Result<i32> {
         Command::Schema(args) => schema::run(args, global),
         Command::Handoff(args) => handoff::run(args, global),
         Command::Doctor => doctor::run(global),
+        Command::Bench(args) => bench::run(args, global),
         Command::Update(args) => update::run(args, global),
     }
 }

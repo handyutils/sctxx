@@ -9,6 +9,14 @@ bump and a compatibility note.
 
 ### Added
 
+- **`sctxx bench` — a handoff benchmark, shipped with the tool.** The survey found no published result
+  measuring what sctxx does, so it measures it, and it is built to lose: `none` and `tail` are arms
+  because a win over doing nothing is not a win, and questions come in two classes — `brief` (what a
+  handoff is supposed to carry) and `deep` (events in the middle of a session, outside anything a
+  brief or a recency tail covers). The `retrieval` arm is agentic: the successor replies `EXPAND a..b`
+  and is given the real events. That is the arm *Handoff Debt* does not have. Method, and everything
+  it does not measure: `docs/BENCHMARK.md`.
+
 - **A deterministic typed layer, so `--llm none` produces constraints instead of an empty section.**
   `ItemKind::Constraint` is first in the rendering priority and the artifact's preamble tells its
   reader to treat the section as *binding user instructions* — but only the fold could create one,

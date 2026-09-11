@@ -162,6 +162,41 @@ instruction; anchoring the marker at the head of the clause returns 1, which is 
 measurement, including the recall this layer does **not** have, is in
 [`docs/research/`](docs/research/) and [ADR 0008](docs/adr/0008-deterministic-typed-layer.md).
 
+## Does it work? Measured, not asserted
+
+The survey of the field found **no published result measuring what sctxx does**. The closest work,
+*Handoff Debt*, is a real handoff benchmark with one arm missing: a successor that can ask for the
+part of the transcript it needs. So sctxx ships the benchmark, `sctxx bench`, and it is built to be
+able to lose — `none` and `tail` are arms, because a win over doing nothing is not a win, and `tail`
+is the strategy the published evidence actually favours.
+
+Four real sessions, 76 questions, one successor backend, Claude Code and Codex transcripts:
+
+| arm | correct | accuracy | tokens per correct answer |
+| --- | --- | --- | --- |
+| nothing | 0/76 | **0%** | — |
+| recency tail | 10/76 | **13%** | 71,913 |
+| the artifact | 19/76 | **25%** | 59,288 |
+| **the artifact + retrieval** | **43/76** | **57%** | **26,894** |
+
+By class, which is where it gets interesting:
+
+| arm | what a brief should carry | events mid-session | what happened last |
+| --- | --- | --- | --- |
+| nothing | 0/20 | 0/40 | 0/16 |
+| recency tail | 4/20 | **0/40** | 6/16 |
+| the artifact | 13/20 | **0/40** | 6/16 |
+| the artifact + retrieval | 13/20 | **23/40** | 7/16 |
+
+A brief cannot answer a question about the middle of a long session — no arm without retrieval scores
+a single one of forty. Retrieval takes that to 23/40 and cuts the cost per correct answer by 2.2×,
+because a reader who can ask for one event range does not need the whole transcript in front of it.
+
+**What this does not measure:** whether a successor resolves an issue. It measures whether a fresh
+agent can answer checkable questions about the session from a given context. That is a proxy, it is
+named as one, and the method and its limitations are in [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
+Numbers and raw reports: [`docs/benchmarks/`](docs/benchmarks/).
+
 ## The artifact
 
 Four layers, cheapest first, so an agent can stop reading as soon as it knows enough.

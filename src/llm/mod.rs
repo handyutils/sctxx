@@ -26,6 +26,10 @@ pub enum CallRole {
     Premap,
     Fold,
     FinalPass,
+    /// A question asked of a context, for `sctxx bench` (spec §10.4). Not part
+    /// of extraction: this is the successor agent being measured, not sctxx
+    /// summarising.
+    Probe,
 }
 
 impl CallRole {
@@ -34,6 +38,7 @@ impl CallRole {
             CallRole::Premap => "premap",
             CallRole::Fold => "fold",
             CallRole::FinalPass => "final_pass",
+            CallRole::Probe => "probe",
         }
     }
 }

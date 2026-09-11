@@ -1,0 +1,197 @@
+{
+  "arms": [
+    "none",
+    "tail",
+    "artifact",
+    "artifact+retrieval"
+  ],
+  "backend": "api:compat/deepseek-v4-flash",
+  "overall": {
+    "artifact": {
+      "accuracy": 0.25,
+      "asked": 20,
+      "by_class": {
+        "brief": [
+          6,
+          2
+        ],
+        "deep": [
+          10,
+          0
+        ],
+        "recent": [
+          4,
+          3
+        ]
+      },
+      "correct": 5,
+      "expansions": 0,
+      "tokens": 379233,
+      "tokens_per_correct": 75846
+    },
+    "artifact+retrieval": {
+      "accuracy": 0.65,
+      "asked": 20,
+      "by_class": {
+        "brief": [
+          6,
+          3
+        ],
+        "deep": [
+          10,
+          8
+        ],
+        "recent": [
+          4,
+          2
+        ]
+      },
+      "correct": 13,
+      "expansions": 11,
+      "tokens": 381730,
+      "tokens_per_correct": 29363
+    },
+    "none": {
+      "accuracy": 0.0,
+      "asked": 20,
+      "by_class": {
+        "brief": [
+          6,
+          0
+        ],
+        "deep": [
+          10,
+          0
+        ],
+        "recent": [
+          4,
+          0
+        ]
+      },
+      "correct": 0,
+      "expansions": 0,
+      "tokens": 537,
+      "tokens_per_correct": null
+    },
+    "tail": {
+      "accuracy": 0.2,
+      "asked": 20,
+      "by_class": {
+        "brief": [
+          6,
+          1
+        ],
+        "deep": [
+          10,
+          0
+        ],
+        "recent": [
+          4,
+          3
+        ]
+      },
+      "correct": 4,
+      "expansions": 0,
+      "tokens": 227993,
+      "tokens_per_correct": 56998
+    }
+  },
+  "questions": 20,
+  "schema": "sctxx.bench/v1",
+  "sessions": [
+    {
+      "arms": {
+        "artifact": {
+          "accuracy": 0.25,
+          "asked": 20,
+          "by_class": {
+            "brief": [
+              6,
+              2
+            ],
+            "deep": [
+              10,
+              0
+            ],
+            "recent": [
+              4,
+              3
+            ]
+          },
+          "correct": 5,
+          "expansions": 0,
+          "tokens": 379233,
+          "tokens_per_correct": 75846
+        },
+        "artifact+retrieval": {
+          "accuracy": 0.65,
+          "asked": 20,
+          "by_class": {
+            "brief": [
+              6,
+              3
+            ],
+            "deep": [
+              10,
+              8
+            ],
+            "recent": [
+              4,
+              2
+            ]
+          },
+          "correct": 13,
+          "expansions": 11,
+          "tokens": 381730,
+          "tokens_per_correct": 29363
+        },
+        "none": {
+          "accuracy": 0.0,
+          "asked": 20,
+          "by_class": {
+            "brief": [
+              6,
+              0
+            ],
+            "deep": [
+              10,
+              0
+            ],
+            "recent": [
+              4,
+              0
+            ]
+          },
+          "correct": 0,
+          "expansions": 0,
+          "tokens": 537,
+          "tokens_per_correct": null
+        },
+        "tail": {
+          "accuracy": 0.2,
+          "asked": 20,
+          "by_class": {
+            "brief": [
+              6,
+              1
+            ],
+            "deep": [
+              10,
+              0
+            ],
+            "recent": [
+              4,
+              3
+            ]
+          },
+          "correct": 4,
+          "expansions": 0,
+          "tokens": 227993,
+          "tokens_per_correct": 56998
+        }
+      },
+      "questions": 20,
+      "session": "claude:1367d688-7dcd-43d8-8d4a-30210a3137f6"
+    }
+  ]
+}
