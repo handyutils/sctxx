@@ -263,24 +263,10 @@ fn tempdir() -> Result<TempDir> {
 /// Find an executable on `PATH`, honoring Windows extensions.
 pub fn find_executable(program: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    let extensions: Vec<String> = if cfg!(windows) {
-        std::env::var("PATHEXT")
-            .unwrap_or_else(|_| ".EXE;.CMD;.BAT".to_string())
-            .split(';')
-            .map(|ext| ext.to_lowercase())
-            .collect()
-    } else {
-        vec![String::new()]
-    };
-    for directory in std::env::split_paths(&path) {
-        for extension in &extensions {
-            let candidate = directory.join(format!("{program}{extension}"));
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
+    let dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
+    // The same question the handoff agent detector asks, so the two cannot
+    // disagree about whether a binary exists.
+    crate::agents::find_program(&dirs, program)
 }
 
 /// Agent CLIs detected on this machine, for `sctxx doctor`.

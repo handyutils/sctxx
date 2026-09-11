@@ -6,6 +6,7 @@
 
 use super::{GlobalArgs, out, out_json};
 use crate::adapters::discovery;
+use crate::agents;
 use crate::error::Result;
 use crate::ir::AgentKind;
 use crate::vendor::codex::secrets::{RedactMode, secret_classes};
@@ -34,6 +35,28 @@ pub fn run(global: &GlobalArgs) -> Result<i32> {
         .into_iter()
         .map(|(name, path)| serde_json::json!({ "backend": format!("cli:{name}"), "path": path }))
         .collect();
+    // Agents a handoff can launch, with the version and whether the seeding
+    // channel is verified on it (ADR 0004). Separate from the LLM backends
+    // above: the same binary is two different things depending on direction.
+    let installed_agents = agents::Machine::this_one().detect();
+    let agent_report: Vec<serde_json::Value> = installed_agents
+        .iter()
+        .map(|agent| {
+            serde_json::json!({
+                "agent": agent.id,
+                "label": agent.label,
+                "installed": agent.installed(),
+                "program": agent.program,
+                "version": agent.version,
+                "seeding_verified": agent.version_verified(),
+                "verified_against": agent.verified_against,
+                "store": agent.store,
+                "store_exists": agent.store_exists,
+                "status": agent.status(),
+            })
+        })
+        .collect();
+
     let api_keys = crate::llm::api::detected_keys();
     let resolved = crate::llm::resolve_auto().map(|selection| selection.to_string());
 
@@ -41,6 +64,7 @@ pub fn run(global: &GlobalArgs) -> Result<i32> {
         cfg!(feature = "zstd").then_some("zstd"),
         cfg!(feature = "api").then_some("api"),
         cfg!(feature = "cli-backends").then_some("cli-backends"),
+        cfg!(feature = "tui").then_some("tui"),
     ]
     .into_iter()
     .flatten()
@@ -50,6 +74,7 @@ pub fn run(global: &GlobalArgs) -> Result<i32> {
         "sctxx": crate::VERSION,
         "features": features,
         "stores": stores,
+        "agents": agent_report,
         "llm": {
             "cli_backends": cli_backends,
             "api_keys_present": api_keys,
@@ -86,6 +111,15 @@ pub fn run(global: &GlobalArgs) -> Result<i32> {
                     path
                 ));
             }
+        }
+    }
+
+    text.push_str("\nAgents a handoff can launch\n");
+    if installed_agents.iter().all(|agent| !agent.installed()) {
+        text.push_str("  none of claude, codex, or pi is on PATH\n");
+    } else {
+        for agent in &installed_agents {
+            text.push_str(&format!("  {:<12} {}\n", agent.label, agent.status()));
         }
     }
 
