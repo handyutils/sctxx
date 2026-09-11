@@ -77,6 +77,19 @@ The fold is optional and works with whatever you already have.
 | `auto` *(default)* | an API key if present, else an installed agent CLI, else `none` |
 | `cli:claude`, `cli:codex`, `cli:pi` | your existing subscription login, in an empty temp directory with tools disabled |
 | `api:anthropic`, `api:openai` | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` |
+| `api:compat/<model>` | any OpenAI-compatible endpoint: `SCTXX_BASE_URL` + `SCTXX_API_KEY` |
+
+**Use an API for a long session; a subscription CLI cannot fold one.** Measured on a real
+103,757-event session with the same digest and the same two calls:
+
+| backend | result |
+| --- | --- |
+| `cli:codex` | killed at the 600 s timeout; still running when the limit was raised to 1,800 s |
+| `api:compat/<model>` | **1 m 37 s**, 47 operations accepted, 36 items active |
+
+The CLI backends ask a coding agent to answer a 50,000-token prompt, and their harnesses are built
+for something else. They are fine for a small session; for a large one they will not return. Pass
+`--model-context` so sctxx checks the prompt against the window before sending it.
 | `api:compat/<model>` | any OpenAI-compatible endpoint via `SCTXX_BASE_URL` (OpenRouter, DeepSeek, Ollama, vLLM, LM Studio) |
 
 
