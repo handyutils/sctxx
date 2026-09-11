@@ -299,6 +299,36 @@ pub enum Diagnostic {
     },
 }
 
+impl Diagnostic {
+    /// A one-line, human-readable description.
+    ///
+    /// Rendered rather than debug-formatted because the reader is a developer
+    /// deciding whether a session is worth extracting, not a log parser. The
+    /// match is exhaustive: a new variant is a compile error here rather than a
+    /// silently blank line in the UI.
+    pub fn label(&self) -> String {
+        match self {
+            Diagnostic::BadLine { line, message, .. } => format!("line {line}: {message}"),
+            Diagnostic::UnknownLineKind { kind, count } => {
+                format!("{count} line(s) of an unrecognised kind (`{kind}`)")
+            }
+            Diagnostic::OrphanToolResult { evt, .. } => {
+                format!("evt {evt}: a tool result with no matching call")
+            }
+            Diagnostic::AbandonedBranch { from, len } => {
+                format!("{len} event(s) abandoned from evt {from}")
+            }
+            Diagnostic::MissingParent { evt, .. } => {
+                format!("evt {evt}: the parent event is missing")
+            }
+            Diagnostic::UnseenAgentVersion { version } => {
+                format!("agent version {version} has not been seen before")
+            }
+            Diagnostic::Note { message } => message.clone(),
+        }
+    }
+}
+
 /// A parsed session: every event, plus which of them are still live.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {

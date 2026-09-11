@@ -18,6 +18,15 @@ bump and a compatibility note.
   Behind the `tui` feature (on by default, excluded by `--no-default-features`).
 - `sctxx --tui` refuses to start when stdout is not a terminal, with exit 2 and a message naming the
   CLI alternatives, so a piped or agent-driven invocation can never hang on a key press.
+- **`sctxx --tui`'s preview now shows what is *in* a session**, not just where the file is: user turns
+  on the active branch, live versus total events, the files the work was about (busiest first), the
+  last command and whether it failed, unresolved error signatures, provider compactions split into
+  window re-anchors and history discards, and any parse diagnostics. All of it comes from the
+  deterministic ledgers, so no model, key, or network is involved.
+  Reading a transcript takes seconds, so it happens on a worker thread: the pane says it is reading
+  while it works, a 150 ms settle delay keeps a held `j` from queuing reads for sessions you are
+  already past, a superseded read is dropped before it starts, and results are cached so returning to
+  a session is instant. A session that cannot be read shows why and stays selectable.
 
 ### Changed
 
