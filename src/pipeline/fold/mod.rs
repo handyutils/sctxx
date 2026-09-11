@@ -22,6 +22,40 @@ use crate::vendor::codex::secrets::RedactMode;
 use ops::{EvtRange, OpBatch};
 use state::FoldState;
 
+/// What a backend's completion is capped at unless told otherwise. Matches the
+/// `max_output_tokens` the fold actually requests.
+pub const DEFAULT_MAX_COMPLETION: usize = 4_000;
+
+/// The prompt's size, broken into the terms of ARC (arXiv:2607.25066)
+/// Theorem 15: `K = B + M + R + P + Q + η ≤ L = L_ctx − G_max`.
+///
+/// Named rather than summed because the sum is the only part a reader cannot act
+/// on. "The prompt is 61,000 tokens and the window is 32,000" is a fact; knowing
+/// that 44,000 of it is the transcript chunk and 9,000 is carried state is what
+/// tells you which knob to turn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct PromptBudget {
+    /// `B` — the fold system prompt.
+    pub system: usize,
+    /// `M` — carried state, which grows with what has been extracted.
+    pub state: usize,
+    /// `R` — the deterministic ledger slice, the later index, prior summaries.
+    pub ledgers: usize,
+    /// `P` — candidates from the isolated premap pass.
+    pub premap: usize,
+    /// `Q` — the transcript chunk itself.
+    pub chunk: usize,
+    /// `η` — the template, the schema, and everything else.
+    pub scaffold: usize,
+}
+
+impl PromptBudget {
+    /// `K`.
+    pub fn total(&self) -> usize {
+        self.system + self.state + self.ledgers + self.premap + self.chunk + self.scaffold
+    }
+}
+
 /// Fold configuration.
 #[derive(Debug, Clone)]
 pub struct FoldOptions {
@@ -36,6 +70,13 @@ pub struct FoldOptions {
     /// Warn the model when the rendered state exceeds this many tokens.
     pub state_tokens: usize,
     pub redact: RedactMode,
+    /// The reader's context window, when the caller knows it. With it, every
+    /// prompt is checked against `L = model_context − max_completion` *before* it
+    /// is sent, so a session too large for the window fails once, immediately,
+    /// instead of forty times over two hours.
+    pub model_context: Option<usize>,
+    /// Tokens reserved for the model's answer (`G_max`).
+    pub max_completion: usize,
 }
 
 impl Default for FoldOptions {
@@ -47,6 +88,8 @@ impl Default for FoldOptions {
             concurrency: 4,
             state_tokens: 6_000,
             redact: RedactMode::Default,
+            model_context: None,
+            max_completion: DEFAULT_MAX_COMPLETION,
         }
     }
 }
@@ -54,6 +97,8 @@ impl Default for FoldOptions {
 /// What the fold produced, alongside the state itself.
 #[derive(Debug, Clone, Default)]
 pub struct FoldReport {
+    /// The largest prompt this run sent, in the theorem's terms.
+    pub prompt_budget: Option<PromptBudget>,
     pub calls: usize,
     pub repair_calls: usize,
     pub premap_calls: usize,
@@ -67,6 +112,19 @@ pub struct FoldReport {
     pub failed_calls: usize,
     /// Backend failures that did not abort the run.
     pub warnings: Vec<String>,
+}
+
+impl FoldReport {
+    /// Keep the largest prompt seen, so the report states the worst case rather
+    /// than the first or the last.
+    pub fn note_prompt_budget(&mut self, budget: PromptBudget) {
+        if self
+            .prompt_budget
+            .is_none_or(|current| budget.total() > current.total())
+        {
+            self.prompt_budget = Some(budget);
+        }
+    }
 }
 
 /// Everything the fold needs from the deterministic stages.
@@ -154,8 +212,14 @@ pub fn run(
         );
         let range = EvtRange::new(chunk.evt_start, chunk.evt_end);
         let rows = &input.rows[chunk.rows.clone()];
-        let mut chunk_text = crate::pipeline::mask::render(rows);
-        if let Some(notes) = premap_notes.get(index).filter(|notes| !notes.is_empty()) {
+        let rows_text = crate::pipeline::mask::render(rows);
+        let notes = premap_notes
+            .get(index)
+            .filter(|notes| !notes.is_empty())
+            .map(String::as_str)
+            .unwrap_or("");
+        let mut chunk_text = rows_text.clone();
+        if !notes.is_empty() {
             chunk_text.push_str("\n# CANDIDATES FROM AN ISOLATED PASS OVER THIS CHUNK\n");
             chunk_text.push_str(notes);
         }
@@ -175,6 +239,8 @@ pub fn run(
             chunk: chunk_text,
             range,
             rejections: String::new(),
+            chunk_tokens: approx_tokens(&rows_text),
+            premap: approx_tokens(notes),
         };
         let user = prompt::render(prompt::Template::FoldUser, &fields, prompt::OPS_SCHEMA);
 
@@ -194,8 +260,9 @@ pub fn run(
             &mut state,
             &mut report,
             &fields,
+            options,
             true,
-        );
+        )?;
         state.mark_processed(&chunk.id);
     }
 
@@ -223,6 +290,8 @@ pub fn run(
             chunk: crate::pipeline::mask::render(rows),
             range,
             rejections: String::new(),
+            chunk_tokens: rows.iter().map(|row| row.tokens).sum(),
+            premap: 0,
         };
         let user = prompt::render(prompt::Template::FinalPass, &fields, prompt::OPS_SCHEMA);
         let context = validate::Context {
@@ -241,8 +310,9 @@ pub fn run(
             &mut state,
             &mut report,
             &fields,
+            options,
             true,
-        );
+        )?;
         state.mark_processed("final");
     }
 
@@ -260,16 +330,21 @@ fn apply_call(
     state: &mut FoldState,
     report: &mut FoldReport,
     fields: &prompt::Fields,
+    options: &FoldOptions,
     allow_repair: bool,
-) {
+) -> Result<()> {
+    let system = strip(prompt::FOLD_SYSTEM);
     let request = Request {
         role,
-        system: strip(prompt::FOLD_SYSTEM),
+        system: system.clone(),
         user: user.to_string(),
         json_schema: serde_json::from_str(prompt::OPS_SCHEMA).ok(),
-        max_output_tokens: 4_000,
+        max_output_tokens: options.max_completion as u32,
         temperature: Some(0.0),
     };
+    let budget = measure_prompt(&system, user, fields);
+    enforce_prompt_budget(&budget, chunk_id, options)?;
+    report.note_prompt_budget(budget);
     report.calls += 1;
     let response = match backend.complete(&request) {
         Ok(response) => response,
@@ -280,7 +355,7 @@ fn apply_call(
             // no semantic layer at all and must not look like an ordinary one.
             report.failed_calls += 1;
             report.warnings.push(format!("{chunk_id}: {error}"));
-            return;
+            return Ok(());
         }
     };
     report.input_tokens += response.input_tokens.unwrap_or(0);
@@ -292,7 +367,7 @@ fn apply_call(
             report
                 .warnings
                 .push(format!("{chunk_id}: unusable response ({reason})"));
-            return;
+            return Ok(());
         }
     };
 
@@ -307,7 +382,7 @@ fn apply_call(
         state.reject(chunk_id, rejection.op_name, rejection.reason.clone());
     }
     if rejected.is_empty() || !allow_repair {
-        return;
+        return Ok(());
     }
 
     // The repair turn: tell the model exactly what was wrong, once.
@@ -330,8 +405,73 @@ fn apply_call(
         state,
         report,
         &repair_fields,
+        options,
         false,
-    );
+    )
+}
+
+fn approx_tokens(text: &str) -> usize {
+    crate::vendor::codex::truncate::approx_token_count(text)
+}
+
+/// Size the prompt in the theorem's terms.
+///
+/// `fields.chunk_tokens` and `fields.premap` must be the sizes of the text
+/// actually placed in `fields.chunk`, split at the seam between the rows and the
+/// appended premap notes. Then the six terms sum to the prompt that is sent, and
+/// the check is meaningful; if they were independent inputs the sum would be a
+/// fiction and the check would refuse working runs.
+fn measure_prompt(system: &str, user: &str, fields: &prompt::Fields) -> PromptBudget {
+    let tokens = crate::vendor::codex::truncate::approx_token_count;
+    let ledgers = tokens(&fields.ledger_slice)
+        + tokens(&fields.later_index)
+        + tokens(&fields.prior_summaries);
+    let named = tokens(&fields.state) + ledgers + fields.premap + fields.chunk_tokens;
+    PromptBudget {
+        system: tokens(system),
+        state: tokens(&fields.state),
+        ledgers,
+        premap: fields.premap,
+        chunk: fields.chunk_tokens,
+        // The template, the schema, the focus line, and the separators, by
+        // subtraction — so the six terms always sum to the prompt actually sent.
+        // The check is only meaningful if they do.
+        scaffold: tokens(user).saturating_sub(named),
+    }
+}
+
+/// `K ≤ L`, checked before the call rather than discovered by it.
+///
+/// Only enforced when the caller said what the window is. Without it the check
+/// would be a guess, and a guess that fails a working run is worse than no check.
+fn enforce_prompt_budget(
+    budget: &PromptBudget,
+    chunk_id: &str,
+    options: &FoldOptions,
+) -> Result<()> {
+    let Some(context) = options.model_context else {
+        return Ok(());
+    };
+    let limit = context.saturating_sub(options.max_completion);
+    let k = budget.total();
+    if k <= limit {
+        return Ok(());
+    }
+    Err(crate::error::Error::Usage(format!(
+        "the prompt for {chunk_id} is {k} tokens but the reader's window leaves {limit} \
+         (--model-context {context} minus --max-completion {}).\n\
+         The prompt is {} system + {} state + {} ledgers + {} premap + {} chunk + {} scaffold.\n\
+         Fix one of: raise --model-context, lower --chunk-tokens (the chunk term is the one that \
+         scales with the session), or use --llm none for the deterministic artifact, which needs \
+         no window at all.",
+        options.max_completion,
+        budget.system,
+        budget.state,
+        budget.ledgers,
+        budget.premap,
+        budget.chunk,
+        budget.scaffold,
+    )))
 }
 
 fn parse_batch(text: &str, chunk_id: &str) -> std::result::Result<OpBatch, String> {
@@ -365,24 +505,39 @@ fn premap(
     for (batch_index, batch) in chunks.chunks(concurrency).enumerate() {
         options.cancel.check()?;
         let offset = batch_index * concurrency;
+        // Built and checked before anything is spawned. Premap used to construct
+        // its own `Request` and call the backend directly, so the window check
+        // saw 41 of this run's 81 calls and let the other 40 go out unmeasured.
+        let system = strip(prompt::FOLD_SYSTEM);
+        let prepared: Vec<(usize, String)> = batch
+            .iter()
+            .enumerate()
+            .map(|(index, chunk)| {
+                let range = EvtRange::new(chunk.evt_start, chunk.evt_end);
+                let rows = &input.rows[chunk.rows.clone()];
+                let text = crate::pipeline::mask::render(rows);
+                let fields = prompt::Fields {
+                    chunk_id: chunk.id.clone(),
+                    focus: focus.to_string(),
+                    ledger_slice: ledger_slice(input.ledgers, range),
+                    chunk_tokens: approx_tokens(&text),
+                    chunk: text,
+                    range,
+                    ..Default::default()
+                };
+                let user = prompt::render(prompt::Template::Premap, &fields, prompt::OPS_SCHEMA);
+                let budget = measure_prompt(&system, &user, &fields);
+                enforce_prompt_budget(&budget, &chunk.id, options)?;
+                report.note_prompt_budget(budget);
+                Ok((offset + index, user))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let results: Vec<(usize, std::result::Result<String, String>)> =
             std::thread::scope(|scope| {
-                let handles: Vec<_> = batch
-                    .iter()
-                    .enumerate()
-                    .map(|(index, chunk)| {
-                        let range = EvtRange::new(chunk.evt_start, chunk.evt_end);
-                        let rows = &input.rows[chunk.rows.clone()];
-                        let fields = prompt::Fields {
-                            chunk_id: chunk.id.clone(),
-                            focus: focus.to_string(),
-                            ledger_slice: ledger_slice(input.ledgers, range),
-                            chunk: crate::pipeline::mask::render(rows),
-                            range,
-                            ..Default::default()
-                        };
-                        let user =
-                            prompt::render(prompt::Template::Premap, &fields, prompt::OPS_SCHEMA);
+                let handles: Vec<_> = prepared
+                    .into_iter()
+                    .map(|(index, user)| {
                         scope.spawn(move || {
                             let request = Request {
                                 role: CallRole::Premap,
@@ -393,7 +548,7 @@ fn premap(
                                 temperature: Some(0.0),
                             };
                             (
-                                offset + index,
+                                index,
                                 backend
                                     .complete(&request)
                                     .map(|response| response.text)
@@ -792,8 +947,10 @@ mod tests {
             &mut state,
             &mut report,
             &prompt::Fields::default(),
+            &FoldOptions::default(),
             true,
-        );
+        )
+        .expect("no window was given, so nothing to refuse");
         assert!(state.items.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert!(report.warnings[0].contains("c0"), "{:?}", report.warnings);
@@ -826,8 +983,10 @@ mod tests {
             &mut state,
             &mut report,
             &prompt::Fields::default(),
+            &FoldOptions::default(),
             true,
-        );
+        )
+        .expect("no window was given, so nothing to refuse");
         assert_eq!(state.active().len(), 1, "{:?}", report.warnings);
         assert_eq!(report.accepted_ops, 1);
     }
@@ -860,8 +1019,10 @@ mod tests {
             &mut state,
             &mut report,
             &prompt::Fields::default(),
+            &FoldOptions::default(),
             true,
-        );
+        )
+        .expect("no window was given, so nothing to refuse");
         assert_eq!(report.repair_calls, 1);
         assert_eq!(report.rejected_ops, 1);
         assert_eq!(state.active().len(), 1);
@@ -893,6 +1054,61 @@ mod tests {
         assert!(budget_notice(&state, &options, "").contains("STATE BUDGET"));
         let generous = FoldOptions::default();
         assert!(!budget_notice(&state, &generous, "").contains("STATE BUDGET"));
+    }
+
+    #[test]
+    fn the_five_named_terms_sum_to_the_prompt_that_is_sent() {
+        // The check is only worth anything if the terms describe the real prompt.
+        // Self-consistent the way production is: `chunk_tokens` and `premap` are
+        // the sizes of the text actually placed in `chunk`, split at the seam
+        // between the rows and the premap notes.
+        let notes = "candidate one; candidate two";
+        let chunk = format!("the chunk\n# CANDIDATES\n{notes}");
+        let fields = prompt::Fields {
+            state: "carried state".into(),
+            ledger_slice: "files: a.rs".into(),
+            later_index: "later".into(),
+            prior_summaries: "summary".into(),
+            chunk,
+            chunk_tokens: approx_tokens("the chunk"),
+            premap: approx_tokens(notes),
+            ..Default::default()
+        };
+        // The real rendered prompt, because the invariant is about the prompt
+        // that is sent: if `user` were a stub the terms could not describe it.
+        let user = prompt::render(prompt::Template::FoldUser, &fields, prompt::OPS_SCHEMA);
+        let system = "system prompt";
+        let budget = measure_prompt(system, &user, &fields);
+        assert_eq!(
+            budget.total(),
+            approx_tokens(system) + approx_tokens(&user),
+            "the terms must sum to the prompt: {budget:?}"
+        );
+        assert!(budget.scaffold > 0, "the template has to cost something");
+        assert_eq!(budget.chunk, fields.chunk_tokens);
+        assert_eq!(budget.premap, fields.premap);
+    }
+
+    #[test]
+    fn a_prompt_that_cannot_fit_the_window_fails_before_it_is_sent() {
+        let fields = prompt::Fields {
+            chunk_tokens: 50_000,
+            ..Default::default()
+        };
+        let budget = measure_prompt("s", "u", &fields);
+        // A 16k window with 4k reserved leaves 12k, and the chunk alone is 50k.
+        let options = FoldOptions {
+            model_context: Some(16_000),
+            ..Default::default()
+        };
+        let error = enforce_prompt_budget(&budget, "c7", &options).expect_err("must refuse");
+        let message = error.to_string();
+        assert!(message.contains("c7"), "{message}");
+        assert!(message.contains("--chunk-tokens"), "{message}");
+
+        // No window given means no check, not a guessed one.
+        let unchecked = FoldOptions::default();
+        assert!(enforce_prompt_budget(&budget, "c7", &unchecked).is_ok());
     }
 
     #[test]

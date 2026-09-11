@@ -48,6 +48,12 @@ pub struct Fields {
     pub chunk: String,
     pub range: EvtRange,
     pub rejections: String,
+    /// Tokens of the transcript rows in this chunk, excluding the premap notes
+    /// appended to them. Recorded rather than re-derived so the prompt budget
+    /// names the term a caller can act on.
+    pub chunk_tokens: usize,
+    /// Tokens of the isolated premap candidates appended to this chunk.
+    pub premap: usize,
 }
 
 /// The prompt id and version a template declares in its front matter.
@@ -154,6 +160,8 @@ mod tests {
             chunk: "[user] hello".into(),
             range: EvtRange::new(10, 42),
             rejections: String::new(),
+            chunk_tokens: 2,
+            premap: 0,
         };
         let rendered = render(Template::FoldUser, &fields, "{\"type\":\"object\"}");
         for expected in [

@@ -72,6 +72,10 @@ pub struct ExtractOptions {
     pub mode: Mode,
     pub llm: Selection,
     pub budget: usize,
+    /// The reader's context window, when the caller knows it (ARC Theorem 15).
+    pub model_context: Option<usize>,
+    /// Tokens reserved for the model's answer.
+    pub max_completion: usize,
     pub tail_tokens: usize,
     pub chunk_tokens: usize,
     pub focus: Option<String>,
@@ -94,6 +98,8 @@ impl Default for ExtractOptions {
             mode: Mode::Standard,
             llm: Selection::Auto,
             budget: 8_000,
+            model_context: None,
+            max_completion: fold::DEFAULT_MAX_COMPLETION,
             tail_tokens: 12_000,
             chunk_tokens: 24_000,
             focus: None,
@@ -140,6 +146,13 @@ pub struct Report {
     pub triage: triage::Triage,
     pub guard: triage::GuardReport,
     pub fold_failed_calls: usize,
+    /// The largest fold prompt this run sent, in ARC Theorem 15's terms, and the
+    /// window it was checked against. `None` when no model ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_budget: Option<fold::PromptBudget>,
+    /// `L = --model-context − --max-completion`, when a window was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_limit: Option<usize>,
     pub llm_input_tokens: u64,
     pub llm_output_tokens: u64,
     pub warnings: Vec<String>,
@@ -576,6 +589,8 @@ pub fn extract_interruptible(
                 },
                 concurrency: options.concurrency,
                 redact: options.redact,
+                model_context: options.model_context,
+                max_completion: options.max_completion,
                 ..Default::default()
             };
             let input = fold::FoldInput {
@@ -731,6 +746,10 @@ pub fn extract_interruptible(
         triage: triage.clone(),
         guard: guard.clone(),
         fold_failed_calls: fold_report.failed_calls,
+        prompt_budget: fold_report.prompt_budget,
+        prompt_limit: options
+            .model_context
+            .map(|context| context.saturating_sub(options.max_completion)),
         llm_input_tokens: fold_report.input_tokens,
         llm_output_tokens: fold_report.output_tokens,
         warnings: fold_report.warnings,

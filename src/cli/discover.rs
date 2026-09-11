@@ -90,6 +90,15 @@ pub struct ExpandArgs {
     #[arg(long, default_value_t = 0)]
     context: u32,
 
+    /// Token ceiling per page. A range larger than this is delivered as exact
+    /// consecutive pages, and every page says how to reach the next one.
+    #[arg(long, default_value_t = 4_000)]
+    max_payload: usize,
+
+    /// Which page to print, 1-based.
+    #[arg(long, default_value_t = 1)]
+    page: usize,
+
     #[arg(long)]
     any_project: bool,
 }
@@ -341,7 +350,15 @@ pub fn expand(args: &ExpandArgs, global: &GlobalArgs) -> Result<i32> {
         ranges.push(parse_range(text)?);
     }
     // The same function the canvas calls, so `[evt a-b]` means one thing.
-    out(&artifact::expand_ranges(&session, &ranges, args.context));
+    out(&artifact::expand_ranges(
+        &session,
+        &ranges,
+        args.context,
+        artifact::Delivery::Page {
+            index: args.page,
+            tokens: args.max_payload,
+        },
+    ));
     Ok(0)
 }
 

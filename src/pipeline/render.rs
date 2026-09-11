@@ -830,9 +830,15 @@ fn ledger_next_actions(artifact: &Artifact<'_>) -> Option<String> {
 }
 
 /// L1: every active item with provenance, then the ledgers.
+/// Tokens the "N item(s) omitted" footer may cost. Reserved from the layer
+/// budget before anything is rendered, because a pointer is only worth its cost
+/// if it is cheaper than what it replaces: omitting a five-token item to write a
+/// twenty-token stub is a net loss, and an uncharged footer is exactly that.
+const POINTER_RESERVE: usize = 48;
+
 fn render_items(artifact: &Artifact<'_>, budget: usize) -> String {
     let mut out = String::from("\n## L1 · Items\n");
-    let mut remaining = budget;
+    let mut remaining = budget.saturating_sub(POINTER_RESERVE);
     let mut omitted: Vec<&str> = Vec::new();
 
     for kind in ItemKind::PRIORITY {

@@ -34,6 +34,16 @@ pub struct ExtractArgs {
     #[arg(long, default_value_t = 8_000)]
     budget: usize,
 
+    /// The fold model's context window, in tokens. Given it, every prompt is
+    /// checked against it before it is sent, and a session that cannot fit fails
+    /// once, immediately, instead of once per chunk.
+    #[arg(long)]
+    model_context: Option<usize>,
+
+    /// Tokens reserved for the fold model's answer.
+    #[arg(long, default_value_t = 4_000)]
+    max_completion: usize,
+
     /// Recency tail token budget.
     #[arg(long, default_value_t = 12_000)]
     tail: usize,
@@ -178,6 +188,8 @@ impl ExtractArgs {
             mode,
             llm,
             budget: self.budget,
+            model_context: self.model_context,
+            max_completion: self.max_completion,
             tail_tokens: self.tail,
             chunk_tokens: self.chunk_tokens,
             focus: self.focus.clone(),

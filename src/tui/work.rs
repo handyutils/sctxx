@@ -297,7 +297,12 @@ fn expand(
         .ok_or_else(|| crate::error::Error::UnknownFormat(summary.path.clone()))?;
     let source = adapters::source::read(&summary.path)?;
     let session = adapters::parse_as(agent, source, adapters::DEFAULT_MAX_BAD_LINE_RATE)?;
-    Ok(artifact::expand_ranges(&session, ranges, context))
+    Ok(artifact::expand_ranges(
+        &session,
+        ranges,
+        context,
+        artifact::Delivery::Whole,
+    ))
 }
 
 /// Run the pipeline and write the artifact, reporting each stage as it starts.

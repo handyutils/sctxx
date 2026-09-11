@@ -112,7 +112,7 @@ enum Command {
     /// Print a session's events as raw JSON, masked rows, or canonical IR.
     Show(discover::ShowArgs),
     /// Produce a handoff artifact from a session. The main command.
-    Extract(extract::ExtractArgs),
+    Extract(Box<extract::ExtractArgs>),
     /// Print the events behind an `[evt a-b]` pointer from an artifact.
     Expand(discover::ExpandArgs),
     /// Re-check an existing artifact against the current repository.
