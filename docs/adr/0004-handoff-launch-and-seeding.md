@@ -145,10 +145,22 @@ Rules that follow, and that the implementation must hold to:
 - Nothing here depends on an undocumented flag being *load-bearing*: the undocumented
   `--append-system-prompt-file` is an optimisation over the cwd fallback, so if upstream removes it the
   feature degrades instead of breaking.
-- Verification is honest but partial. Flag existence, usage strings, and Pi's file-vs-text rule are
-  confirmed as shown above; a **real end-to-end launch** of each agent with a real artifact is a task
-  in block 024, because it starts sessions and spends tokens. Until it runs, each row's status is
-  "probed", not "verified", and the table says which.
+- Verification ran on 2026-09-11 against a real 58 KB artifact, and the three content-delivery rows
+  **moved from "probed" to "verified"**: Claude Code's `--append-system-prompt-file`, Pi's
+  `--append-system-prompt <path>`, and Codex's pointer route each caused the receiving agent to answer
+  with the source session's id, which appears only inside the artifact. Evidence:
+  [`specs/024-m8-interactive-tui/evidence/T2419.md`](../../specs/024-m8-interactive-tui/evidence/T2419.md).
+- **What the verification found, and it is the important part:** neither interactive launch reached a
+  first turn. Both stopped at the agent's **own trust prompt** for a directory it had not seen before
+  ("Is this a project you created or one you trust?" / "Do you trust the contents of this directory?").
+  That is correct behaviour, and it is exactly the prompt `--dangerously-bypass-…` would skip — which is
+  why sctxx never passes that flag. A real handoff starts in the project the session was about, which
+  the developer has already trusted, so this is an edge case rather than the normal path; the confirming
+  pane now says it will happen so that it is not a surprise.
+- Still unverified, deliberately: first-turn delivery in the *interactive* form past that prompt (it
+  would mean accepting trust on the developer's behalf, or launching into a live project and letting the
+  agent start working), and resumability (the runs exited before writing a session, and relocating the
+  agent's home for the test also relocates its credentials).
 
 **Residual risk.** All three CLIs change flags without notice, and Pi's existence-based disambiguation
 means a path-shaped string is always a file — a behaviour to keep in mind if a future channel passes

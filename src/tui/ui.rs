@@ -433,6 +433,19 @@ fn handoff_pane(frame: &mut Frame, area: Rect, app: &App, state: &HandoffState) 
             for chunk in wrap_hard(&launch.display, width.saturating_sub(1)) {
                 lines.push(Line::raw(format!(" {chunk}")));
             }
+            lines.push(Line::default());
+            // Measured, not assumed: both Claude Code and Codex stop at their own
+            // trust prompt for a directory they have not seen before, before the
+            // first turn. That prompt is theirs and sctxx must not bypass it, so
+            // the least it can do is not let it be a surprise (T2419).
+            lines.push(Line::styled(
+                " a directory the agent has not seen before will ask to be trusted first.",
+                Style::default().fg(DIM),
+            ));
+            lines.push(Line::styled(
+                " that prompt belongs to the agent: sctxx never bypasses it.",
+                Style::default().fg(DIM),
+            ));
         }
     }
 

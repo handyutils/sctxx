@@ -20,6 +20,10 @@ bump and a compatibility note.
   The launched agent is a full-screen application, so it gets the whole terminal rather than a pane
   inside the TUI, which also means no PTY or terminal-emulator dependency
   ([ADR 0006](docs/adr/0006-hand-over-the-terminal-to-the-launched-agent.md)).
+  Verified against real launches of Claude Code 2.1.268, Codex CLI 0.153.4 and Pi 0.85.1: each
+  returned the source session's id, which appears only inside the artifact, so the handoff genuinely
+  reaches the receiving agent. Note that an agent asked to work in a directory it has not seen before
+  will first ask you to trust it — that prompt is the agent's, and sctxx never bypasses it.
 
 - **`sctxx doctor` reports the coding agents a handoff can launch**, with the version each one
   answered and whether that version is one the seeding channel was verified on. An agent installed at

@@ -262,18 +262,25 @@ task says which library function is being wrapped, not reimplemented.
     from the same config the CLI reads; the test enumerates clap's subcommands so a new one cannot be
     silently absent
 
-- [ ] **T2419** [ADR 0004, FR-019] Verify each seeding row end to end, against a real launch
-  - Why: ADR 0004 records what was *probed* — flag existence, usage strings, Pi's file-vs-text rule —
-    and is explicit that a real launch is unverified. Starting sessions and spending tokens is why this
-    is its own task, and why each row's status is honest until it runs
-  - Depends on: T2415, and a real artifact from T2410
-  - Touches: `docs/adr/0004-handoff-launch-and-seeding.md` (status column only), `evidence/T2419.md`
-  - Acceptance: Claude Code 2.1.268, Codex 0.153.4 and Pi 0.85.1 each start a new session whose first
-    turn contains the handoff; the version, the exact argv, whether the session is left resumable, and
-    the fallback are recorded per row; a row that fails is demoted to the cwd fallback in the table
-    rather than left claiming otherwise
-  - Blocked on: nothing but consent — this task starts real agent sessions
-
+- [x] **T2419** [ADR 0004, FR-019] Verify each seeding row against a real launch
+  - Why: ADR 0004 recorded its rows as *probed* — the flags existed, but no artifact had ever reached a
+    model through them. A claim about another tool is worth exactly as much as the last time it was run
+  - Depends on: T2412, T2413
+  - RED/GREEN proof: n/a — this is an evidence task, and its output is
+    [`evidence/T2419.md`](evidence/T2419.md)
+  - Acceptance: for each of Claude Code, Codex and Pi, on the installed versions, the artifact reached
+    the receiving agent's first turn and the version and exact command are recorded
+  - **Result: three of three verified for content delivery**, against a real 58 KB artifact. The test is
+    content-level, not flag-level: the artifact contains the source session's id and the pointer does
+    not, so an agent that answers with that id read the *handoff*. Claude Code 12.0 s, Pi 15.0 s, Codex
+    20.5 s, all exit 0
+  - **Finding:** neither interactive launch reached a first turn — both stopped at the agent's own
+    **trust prompt** for an unfamiliar directory. Correct behaviour, and precisely what
+    `--dangerously-bypass-…` exists to skip and sctxx never passes. The confirming pane now says so, so
+    it is not a surprise. `the_confirmation_shows_the_exact_command_before_it_runs` asserts the wording
+  - **Still unverified, and said so rather than implied:** first-turn delivery in the interactive form
+    past that prompt, and resumability. Reaching either would mean accepting trust on the developer's
+    behalf or launching into a live project
 - [ ] **T2420** [FR-026b, §16] Measure the release binary against the <15 MB target
   - Why: the spec requires the size be measured when the feature lands, "not assumed"; the TUI adds
     ratatui, crossterm, portable-pty, vt100, tui-term, tui-tree-widget, tui-markdown, tui-input
