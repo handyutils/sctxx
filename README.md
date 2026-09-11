@@ -137,12 +137,38 @@ Or download a binary from [Releases](https://github.com/handyutils/sctxx/release
 
 ## Documentation
 
-**[handyutils.github.io/sctxx](https://handyutils.github.io/sctxx)** — install, usage, prompts,
-example workflows, and how to point an agent at a specific session id.
+**Everything on one page: <https://handyutils.github.io/sctxx/>**
 
-In this repository: [`docs/SCTXX-SPEC.md`](docs/SCTXX-SPEC.md) is the architecture reference,
-[`docs/SCTXX-ROADMAP.md`](docs/SCTXX-ROADMAP.md) the direction, and [`specs/`](specs/) the
-delivery ledger.
+| Section | Link |
+|---|---|
+| Quick start | <https://handyutils.github.io/sctxx/#quickstart> |
+| Prompts to give your agent | <https://handyutils.github.io/sctxx/#prompts> |
+| Pointing at a specific session | <https://handyutils.github.io/sctxx/#session-ids> |
+| What the artifact contains | <https://handyutils.github.io/sctxx/#artifact> |
+| Why you can trust it | <https://handyutils.github.io/sctxx/#trust> |
+| LLM backends | <https://handyutils.github.io/sctxx/#backends> |
+| Command reference | <https://handyutils.github.io/sctxx/#commands> |
+| Worked examples | <https://handyutils.github.io/sctxx/#workflows> |
+| Troubleshooting and exit codes | <https://handyutils.github.io/sctxx/#troubleshooting> |
+
+**In this repository**
+
+| Resource | Path |
+|---|---|
+| Architecture spec | [`docs/SCTXX-SPEC.md`](docs/SCTXX-SPEC.md) |
+| Roadmap | [`docs/SCTXX-ROADMAP.md`](docs/SCTXX-ROADMAP.md) |
+| Milestone ledger | [`specs/`](specs/) |
+| Development log | [`docs/DEVELOPMENT-LOG.md`](docs/DEVELOPMENT-LOG.md) |
+| **Vendored Codex manifest, file by file** | [`src/vendor/codex/README.md`](src/vendor/codex/README.md) |
+| Codex compaction research | [`specs/006-m2-codex-adapter/research.md`](specs/006-m2-codex-adapter/research.md) |
+| ADR: what is reused from Codex | [`docs/adr/0002-codex-compaction-algorithm-reuse.md`](docs/adr/0002-codex-compaction-algorithm-reuse.md) |
+| Agent Skill source | [`skill/SKILL.md`](skill/SKILL.md) |
+
+**Elsewhere:** [npm](https://www.npmjs.com/package/sctxx) ·
+[crates.io](https://crates.io/crates/sctxx) ·
+[Releases](https://github.com/handyutils/sctxx/releases) ·
+[Issues](https://github.com/handyutils/sctxx/issues) ·
+[the upstream we port from](https://github.com/openai/codex)
 
 ## Status
 

@@ -182,12 +182,48 @@ network at install time beyond the registry. On an unsupported platform it tells
 
 ## Links
 
-- **Documentation:** <https://handyutils.github.io/sctxx/>
-- **Source & issues:** <https://github.com/handyutils/sctxx>
-- **Changelog:** <https://github.com/handyutils/sctxx/blob/main/CHANGELOG.md>
-- **Architecture spec:** <https://github.com/handyutils/sctxx/blob/main/docs/SCTXX-SPEC.md>
-- **Which Codex code is vendored, file by file:** <https://github.com/handyutils/sctxx/blob/main/src/vendor/codex/README.md>
-- **crates.io:** <https://crates.io/crates/sctxx>
+**Documentation site — everything on one page: <https://handyutils.github.io/sctxx/>**
+
+| Page section | Link |
+|---|---|
+| Why this exists | <https://handyutils.github.io/sctxx/#why> |
+| Quick start | <https://handyutils.github.io/sctxx/#quickstart> |
+| Prompts to give your agent | <https://handyutils.github.io/sctxx/#prompts> |
+| Pointing at a specific session | <https://handyutils.github.io/sctxx/#session-ids> |
+| What the artifact contains | <https://handyutils.github.io/sctxx/#artifact> |
+| Why you can trust it | <https://handyutils.github.io/sctxx/#trust> |
+| LLM backends | <https://handyutils.github.io/sctxx/#backends> |
+| Command reference | <https://handyutils.github.io/sctxx/#commands> |
+| Worked examples | <https://handyutils.github.io/sctxx/#workflows> |
+| Troubleshooting and exit codes | <https://handyutils.github.io/sctxx/#troubleshooting> |
+
+**Source, releases, and the provenance behind the claims**
+
+| Resource | Link |
+|---|---|
+| Repository (original source) | <https://github.com/handyutils/sctxx> |
+| Issues and questions | <https://github.com/handyutils/sctxx/issues> |
+| Releases — binaries for six targets, with checksums | <https://github.com/handyutils/sctxx/releases> |
+| Changelog | <https://github.com/handyutils/sctxx/blob/main/CHANGELOG.md> |
+| Architecture spec | <https://github.com/handyutils/sctxx/blob/main/docs/SCTXX-SPEC.md> |
+| Roadmap | <https://github.com/handyutils/sctxx/blob/main/docs/SCTXX-ROADMAP.md> |
+| Milestone ledger (`specs/`) | <https://github.com/handyutils/sctxx/tree/main/specs> |
+| Development log | <https://github.com/handyutils/sctxx/blob/main/docs/DEVELOPMENT-LOG.md> |
+| **Vendored Codex manifest, file by file** | <https://github.com/handyutils/sctxx/blob/main/src/vendor/codex/README.md> |
+| Codex compaction research | <https://github.com/handyutils/sctxx/blob/main/specs/006-m2-codex-adapter/research.md> |
+| ADR: what is reused from Codex, and why | <https://github.com/handyutils/sctxx/blob/main/docs/adr/0002-codex-compaction-algorithm-reuse.md> |
+| Agent Skill source | <https://github.com/handyutils/sctxx/blob/main/skill/SKILL.md> |
+| Contributing | <https://github.com/handyutils/sctxx/blob/main/CONTRIBUTING.md> |
+| Security policy | <https://github.com/handyutils/sctxx/blob/main/SECURITY.md> |
+
+**Install from**
+
+| Channel | Link |
+|---|---|
+| npm | <https://www.npmjs.com/package/sctxx> |
+| crates.io | <https://crates.io/crates/sctxx> |
+| GitHub Releases | <https://github.com/handyutils/sctxx/releases> |
+| The upstream we port from — OpenAI Codex CLI | <https://github.com/openai/codex> |
 
 ## Licence
 
