@@ -143,6 +143,60 @@ fn since_compact_is_a_notice_not_a_failure_when_nothing_compacted() {
 }
 
 #[test]
+fn max_bad_lines_can_admit_a_session_the_default_rejects() {
+    // This fixture has one truncated line in seven — 14.3%, well over the 2%
+    // default — which is the shape a real session from a newer provider
+    // version can take.
+    let fixture = fixtures().join("claude/sidechain-and-malformed.jsonl");
+
+    let rejected = sctxx()
+        .args(["extract"])
+        .arg(&fixture)
+        .args(["--llm", "none", "--no-verify", "--quiet"])
+        .output()
+        .expect("run");
+    assert_eq!(rejected.status.code(), Some(5), "{}", stderr_of(&rejected));
+    // The message must name the way out, or a first run ends here.
+    assert!(
+        stderr_of(&rejected).contains("--max-bad-lines"),
+        "{}",
+        stderr_of(&rejected)
+    );
+
+    let admitted = sctxx()
+        .args(["extract"])
+        .arg(&fixture)
+        .args([
+            "--llm",
+            "none",
+            "--no-verify",
+            "--quiet",
+            "--max-bad-lines",
+            "0.5",
+        ])
+        .output()
+        .expect("run");
+    assert!(admitted.status.success(), "{}", stderr_of(&admitted));
+    assert!(stdout_of(&admitted).contains("sctxx.handoff/v1"));
+}
+
+#[test]
+fn an_out_of_range_max_bad_lines_is_a_usage_error() {
+    let output = sctxx()
+        .args(["extract"])
+        .arg(fixtures().join("claude/basic.jsonl"))
+        .args(["--llm", "none", "--max-bad-lines", "5"])
+        .output()
+        .expect("run");
+    assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
+    assert!(
+        stderr_of(&output).contains("between 0 and 1"),
+        "{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
 fn extract_warns_when_git_would_track_the_artifact() {
     let dir = tempfile::tempdir().expect("tempdir");
     let repo = dir.path();

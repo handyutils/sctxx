@@ -34,6 +34,7 @@
 | `--layers L0,L1,L2,L3` | all | Which layers to render |
 | `--include-sidechains` | off | Include subagent transcripts |
 | `--since-compact` | off | Start from the newest provider compaction boundary, keeping its summary as a low-trust seed. Reports the boundary on stderr; a session that never compacted is a notice, not an error |
+| `--max-bad-lines <RATE>` | `0.02` | Fraction of lines allowed to fail parsing. Raise it for a session written by a provider version newer than sctxx; unknown lines are kept as events either way |
 | `--keep-reasoning` | off | Keep readable model reasoning in masked rows |
 | `--keep-system` | off | Keep system and unrecognized events |
 | `--redact default\|strict\|off` | `default` | `off` applies only with `--llm none` |

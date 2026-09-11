@@ -101,6 +101,16 @@ pub struct ExtractArgs {
     /// boundary's summary as a low-trust seed.
     #[arg(long)]
     since_compact: bool,
+
+    /// Allow up to this fraction of lines to fail parsing, e.g. 0.05 for 5%
+    /// (default 0.02). A provider version newer than sctxx can add line types
+    /// it does not know yet; this is the knob for that.
+    #[arg(
+        long,
+        default_value_t = crate::adapters::DEFAULT_MAX_BAD_LINE_RATE,
+        value_name = "RATE"
+    )]
+    max_bad_lines: f64,
 }
 
 pub fn run(args: &ExtractArgs, global: &GlobalArgs) -> Result<i32> {
@@ -108,6 +118,12 @@ pub fn run(args: &ExtractArgs, global: &GlobalArgs) -> Result<i32> {
     let llm = Selection::parse(&args.llm)?;
     let redact = parse_redact(&args.redact, &llm, global)?;
     let layers = render::Layers::parse(&args.layers)?;
+    if !(0.0..=1.0).contains(&args.max_bad_lines) {
+        return Err(Error::Usage(format!(
+            "--max-bad-lines must be a fraction between 0 and 1 (got {}); 0.02 tolerates 2%",
+            args.max_bad_lines
+        )));
+    }
     if mode == Mode::Full {
         global
             .note("note: --mode full currently behaves as standard; the probe loop is roadmap M5.");
@@ -130,7 +146,7 @@ pub fn run(args: &ExtractArgs, global: &GlobalArgs) -> Result<i32> {
         keep_system: args.keep_system,
         redact,
         concurrency: args.concurrency,
-        ..ExtractOptions::default()
+        max_bad_line_rate: args.max_bad_lines,
     };
 
     let reference = discovery::parse_reference(&args.reference)?;

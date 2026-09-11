@@ -9,6 +9,10 @@ bump and a compatibility note.
 
 ### Added
 
+- **`extract --max-bad-lines <RATE>`** (spec §3.1): the fraction of lines allowed to fail parsing,
+  default `0.02`. It was documented and internally supported but never exposed, so a session with one
+  unrecognized line type from a newer provider version failed with exit 5 and no way out. The error now
+  names the flag.
 - **`extract --out` warns when the artifact directory is not git-ignored.** An artifact quotes the
   session — user messages verbatim, paths, error output — so a `git add -A` in the user's project
   could commit and push it. `extract` now checks with `git check-ignore` (read-only, allowlisted) and

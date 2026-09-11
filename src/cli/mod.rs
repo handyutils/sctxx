@@ -171,6 +171,16 @@ fn report(error: &Error, json: bool) -> i32 {
         );
         return error.exit_code();
     }
+    // A parse-rate failure has one obvious remedy, and the situation that
+    // produces it — a session from a provider version sctxx has not seen — is
+    // exactly when the user has no idea a knob exists.
+    if let Error::ParseFailureRate { .. } = error {
+        let _ = writeln!(
+            std::io::stderr(),
+            "hint: raise --max-bad-lines (a fraction, e.g. 0.05 for 5%) to accept this session anyway;\n\
+             \x20     unknown lines are kept as events and reported in report.json, never dropped"
+        );
+    }
     if json {
         let payload = serde_json::json!({
             "error": error.to_string(),
