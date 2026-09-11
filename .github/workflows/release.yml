@@ -38,7 +38,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      # Not for the cross builds. They run inside a container whose glibc is
+      # older than the runner's, and a restored `target/` can carry build
+      # scripts compiled on the runner — which the container then refuses to
+      # execute (`GLIBC_2.28 not found`). CI's otherwise identical cross build
+      # passed while this one failed, which is what cache poisoning between the
+      # two workflows looks like. A cold musl build is slower and correct.
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !matrix.cross }}
 
       - name: Install cross
         if: matrix.cross
