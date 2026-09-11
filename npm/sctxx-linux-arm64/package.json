@@ -1,6 +1,6 @@
 {
   "name": "sctxx-linux-arm64",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The sctxx binary for Linux on arm64 (static). Install `sctxx` instead of this package.",
   "license": "Apache-2.0",
   "homepage": "https://handyutils.github.io/sctxx",

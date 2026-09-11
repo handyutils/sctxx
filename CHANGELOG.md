@@ -7,6 +7,17 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-11
+
+### Fixed
+
+- **npm: the Windows-on-ARM package is now `sctxx-windows-arm64`.** npm's spam detection refuses
+  `sctxx-win32-arm64` for this publishing account — it did so at 0.1.0 and again at 0.1.1 — and
+  because that package publishes fifth in the loop, its failure also skipped `sctxx-win32-x64@0.1.1`
+  and the `sctxx` wrapper, leaving `npm i -g sctxx` serving 0.1.0. A different name publishes without
+  complaint, so the package is renamed and the seven names now ship together. Nothing a user types
+  changes: the wrapper still resolves the right binary per platform.
+
 ## [0.1.1] - 2026-09-11
 
 Found by pointing the tool at real sessions for the first time, plus npm as a third install channel.
@@ -110,6 +121,7 @@ Tracked in `docs/SCTXX-ROADMAP.md`: the probe loop and `sctxx eval` (M5); cache,
 incremental updates; host mode and an MCP server (M6). `--mode full` currently behaves as
 `standard` and says so.
 
-[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/handyutils/sctxx/releases/tag/v0.1.2
 [0.1.1]: https://github.com/handyutils/sctxx/releases/tag/v0.1.1
 [0.1.0]: https://github.com/handyutils/sctxx/releases/tag/v0.1.0

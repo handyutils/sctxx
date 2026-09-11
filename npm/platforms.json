@@ -1,8 +1,26 @@
 {
-  "aarch64-apple-darwin": { "package": "sctxx-darwin-arm64", "binary": "sctxx" },
-  "x86_64-apple-darwin": { "package": "sctxx-darwin-x64", "binary": "sctxx" },
-  "aarch64-unknown-linux-musl": { "package": "sctxx-linux-arm64", "binary": "sctxx" },
-  "x86_64-unknown-linux-musl": { "package": "sctxx-linux-x64", "binary": "sctxx" },
-  "aarch64-pc-windows-msvc": { "package": "sctxx-win32-arm64", "binary": "sctxx.exe" },
-  "x86_64-pc-windows-msvc": { "package": "sctxx-win32-x64", "binary": "sctxx.exe" }
+  "aarch64-apple-darwin": {
+    "package": "sctxx-darwin-arm64",
+    "binary": "sctxx"
+  },
+  "x86_64-apple-darwin": {
+    "package": "sctxx-darwin-x64",
+    "binary": "sctxx"
+  },
+  "aarch64-unknown-linux-musl": {
+    "package": "sctxx-linux-arm64",
+    "binary": "sctxx"
+  },
+  "x86_64-unknown-linux-musl": {
+    "package": "sctxx-linux-x64",
+    "binary": "sctxx"
+  },
+  "aarch64-pc-windows-msvc": {
+    "package": "sctxx-windows-arm64",
+    "binary": "sctxx.exe"
+  },
+  "x86_64-pc-windows-msvc": {
+    "package": "sctxx-win32-x64",
+    "binary": "sctxx.exe"
+  }
 }

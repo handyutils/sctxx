@@ -1,6 +1,6 @@
 {
   "name": "sctxx-darwin-x64",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The sctxx binary for macOS on Intel. Install `sctxx` instead of this package.",
   "license": "Apache-2.0",
   "homepage": "https://handyutils.github.io/sctxx",

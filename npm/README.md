@@ -54,23 +54,28 @@ Both publish jobs are idempotent: each skips a version that already exists. That
 channel be added for an already-tagged version, and what makes a partially-failed release safe to
 re-dispatch.
 
-### 0.1.0: one package missing, and where provenance is absent
+### The Windows-on-ARM name, and why publishing is CI-only
 
-The first release published six of the seven names. `sctxx-win32-arm64` was refused with
-`403 Package name triggered spam detection` — npm's heuristic for a new account publishing a burst of
-similarly-named packages. The other five went up, re-tried one at a time.
+`sctxx-win32-arm64` is refused by npm with `403 Package name triggered spam detection`. It was
+refused at 0.1.0, again at 0.1.1, and a different name — `sctxx-windows-arm64` — published on the
+first attempt. **The name, not the account or the mechanism, is what npm objects to.** The package is
+therefore called `sctxx-windows-arm64`; nothing a user types changes.
 
-Two consequences worth knowing before the next release:
+That failure also explains a subtler problem. The loop publishes platform packages in order and stops
+at the first error, so a blocked fifth package silently skipped the sixth *and* the wrapper — leaving
+`npm i -g sctxx` serving the previous version while the crate on crates.io was current. A rename fixes
+this instance; a release that must publish seven things in order will always be able to fail halfway,
+which is why every publish is idempotent and a re-dispatch is the normal recovery.
 
-- **`sctxx-win32-arm64` does not exist yet.** Windows on ARM is the one platform whose install falls
-  back to the shim's message (`npm install -g sctxx --include=optional`, then `cargo install sctxx`).
-  Re-dispatching the release retries it, because the job skips what is already published. If npm
-  keeps refusing, the options are to wait and retry, to ask npm support, or to rename that one
-  package — the name, not the mechanism, is what is being refused.
-- **Provenance is inconsistent in 0.1.0.** Four platform packages were published by CI with signed
-  provenance; the wrapper and `sctxx-win32-x64` were published by hand after the spam block and have
-  none. npm versions are immutable, so that cannot be fixed retroactively — every version from here
-  on is published by CI and fully attested.
+**Publish from CI, not by hand.** Manual publishes from a workstation are accepted by the CLI
+(`+ sctxx@0.1.1`) and then quietly held for npm's review — the version never appears, and `npm view`
+still reports the old one. CI publishes carry `--provenance` and land immediately. If a manual publish
+is ever unavoidable, verify with `curl https://registry.npmjs.org/<name>/<version>` rather than
+trusting the CLI's success line.
+
+Provenance in 0.1.0 is inconsistent for that reason: four platform packages were CI-published and
+signed, the wrapper and `sctxx-win32-x64` were not. npm versions are immutable, so it cannot be fixed
+retroactively — but nothing from 0.1.2 onward is published by hand.
 
 ## Deviation from the spec
 

@@ -17,7 +17,7 @@ const PLATFORMS = {
   "darwin x64": "sctxx-darwin-x64",
   "linux arm64": "sctxx-linux-arm64",
   "linux x64": "sctxx-linux-x64",
-  "win32 arm64": "sctxx-win32-arm64",
+  "win32 arm64": "sctxx-windows-arm64",
   "win32 x64": "sctxx-win32-x64",
 };
 
