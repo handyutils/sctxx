@@ -510,6 +510,7 @@ export default function App() {
               <strong>{proof.after}</strong>
             </div>
             <div className="proof-time">{proof.time}</div>
+            {proof.note && <p className="proof-note">{proof.note}</p>}
           </section>
 
           {query && (

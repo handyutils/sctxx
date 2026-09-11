@@ -20,9 +20,12 @@ export const hero = {
 };
 
 export const proof = {
-  before: "212 MB transcript · 94,164 events · 288 user turns",
-  after: "61 KB handoff · 15k tokens · every claim traceable",
-  time: "7.6 s, no model called",
+  before: "302 MB transcript · 141,409 events · 288 user turns",
+  after: "7.9 KB handoff · 3.2k tokens · every claim traceable",
+  time: "5.0 s on an M1 Max, no model called",
+  note:
+    "Measured on a synthetic tool-output-heavy session, release build. " +
+    "The numbers and the command are in specs/004-m1-deterministic-handoff-skeleton/evidence/.",
 };
 
 // Every section is searchable; `text` is the haystack.

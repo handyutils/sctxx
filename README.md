@@ -30,8 +30,12 @@ sctxx extract claude:7c1e8f82 --out .sctxx/
 ```
 
 ```text
-212 MB transcript, 94,164 events  ──►  61 KB handoff, 15k tokens   (7.6 s, no model)
+302 MB transcript, 141,409 events, 288 user turns  ──►  7.9 KB handoff, 3.2k tokens   (5.0 s, no model)
 ```
+
+Measured on an Apple M1 Max (release build) against a synthetic 302 MB session with tool-output-heavy
+turns; see [`specs/004-m1-deterministic-handoff-skeleton/evidence/perf-synthetic-2026-09-11.md`](specs/004-m1-deterministic-handoff-skeleton/evidence/perf-synthetic-2026-09-11.md)
+for the command, the raw numbers, and the memory characteristic.
 
 ## What makes the output trustworthy
 

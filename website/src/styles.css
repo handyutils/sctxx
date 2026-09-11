@@ -365,6 +365,16 @@ body {
   font: 11px "DM Mono", monospace;
 }
 
+/* Says how the numbers above were obtained, so the claim is checkable. */
+.proof-note {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
 /* ---- sections ------------------------------------------------------- */
 .doc-section {
   border-bottom: 1px solid var(--line);
