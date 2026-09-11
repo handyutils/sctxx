@@ -7,33 +7,20 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
-### Added
-
-- **`extract --since-compact`**: start from the newest provider compaction boundary and keep that
-  boundary's summary as a low-trust seed. The run names the boundary on stderr; a session that never
-  compacted is a notice rather than an error.
-- **Compaction kind in the IR**: `NativeCompaction` now records whether a boundary was a *window
-  re-anchor* (Codex `compacted` with a `window_number`, transcript intact) or a *legacy history
-  reset*. `--since-compact` prefers the newest reset, and falls back to the earliest re-anchor.
-  See `docs/adr/0002-codex-compaction-algorithm-reuse.md`.
-
-### Fixed
-
-- Reading Codex `compacted.replacement_history`: a message envelope nests its text under `content`,
-  so a local compaction summary was previously read as empty. Nesting is now walked, bounded to eight
-  levels so a corrupt session file cannot exhaust the stack.
-- **The published crate no longer contains the website's `node_modules`.** Cargo matches the `include`
-  list the way gitignore does, so the bare `README.md`, `LICENSE`, `NOTICE`, and `CHANGELOG.md` entries
-  matched files at every depth — 118 of them came from `website/node_modules`. Every entry is now
-  anchored to the package root, the tarball is back to 66 files, and CI fails on any file outside the
-  expected set.
-
 ## [0.1.0] - 2026-09-11
 
 First release. Reads a coding-agent session from disk and writes a verified, provenance-linked
 handoff artifact another agent can continue from.
 
 ### Added
+
+- **`extract --since-compact`**: start from the newest provider compaction boundary and keep that
+  boundary's summary as a low-trust seed. The run names the boundary on stderr; a session that never
+  compacted is a notice rather than an error.
+- **Compaction kind in the IR**: `NativeCompaction` records whether a boundary was a *window
+  re-anchor* (Codex `compacted` with a `window_number`, transcript intact) or a *legacy history
+  reset*. `--since-compact` prefers the newest reset, and falls back to the earliest re-anchor.
+  See `docs/adr/0002-codex-compaction-algorithm-reuse.md`.
 
 - **Adapters** for Claude Code, Codex CLI, and Pi, each resolving the live conversation:
   `parentUuid` trees with `logicalParentUuid` across compaction boundaries, `ThreadRolledBack`
@@ -59,6 +46,19 @@ handoff artifact another agent can continue from.
   overwrite a locally modified `SKILL.md`.
 - **Published contracts**: exit codes, and the `sctxx.handoff/v1`, `state.v1`, `ops.v1`, and
   `ir.v1` JSON Schemas, printable with `sctxx schema`.
+
+### Fixed
+
+- Reading Codex `compacted.replacement_history`: a message envelope nests its text under `content`,
+  so a local compaction summary was previously read as empty. Nesting is now walked, bounded to eight
+  levels so a corrupt session file cannot exhaust the stack.
+- **The published crate no longer contains the website's `node_modules`.** Cargo matches the `include`
+  list the way gitignore does, so the bare `README.md`, `LICENSE`, `NOTICE`, and `CHANGELOG.md`
+  entries matched files at every depth — 118 of them came from `website/node_modules`. Every entry is
+  anchored to the package root, and CI fails on any file outside the expected set.
+- Windows: `.gitattributes` pins LF in the working tree. `source_hash` is a hash of the session file's
+  bytes, so a CRLF checkout produced different hashes and failed the pipeline snapshots there while
+  macOS and Linux passed.
 
 ### Provenance
 

@@ -12,6 +12,56 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - v0.1.0 published: crates.io, GitHub Release, and the documentation site
+
+Commits: `0b81048d81808574c86437e4290f89c629cde40e`, `f9591fdf9a9193134bef924d6e4870cadbd9f97b`,
+`8105fb71889833ab96e0b57e92ad1618e7845656`, `1fc1848ff2c48a4322b91de9da8c400fcb7d0093`,
+`3a458a5159fe517fccffee5ca7d8d7c2acb8a265` · Tag: `v0.1.0` · Release run: `34554821224`
+
+The first public release. Everything below was found by *shipping* — none of it showed up in the
+local gate, which is the point worth remembering.
+
+**Published.** `cargo install sctxx` installs 0.1.0 from crates.io (verified from a clean root, and
+the installed binary extracts a fixture correctly). Six target archives — macOS x86_64/aarch64,
+Linux musl x86_64/aarch64, Windows x86_64/aarch64 — with `.sha256` sidecars are on the GitHub
+Release. The documentation site deploys to <https://handyutils.github.io/sctxx> on every push that
+touches `website/`. `CARGO_REGISTRY_TOKEN` is now a repository secret, so a tag publishes without a
+local token.
+
+**Three bugs only CI could see, all fixed:**
+
+1. **The crate shipped the website's `node_modules`.** Cargo matches `include` the way gitignore
+   does, so the bare `README.md`, `LICENSE`, `NOTICE`, and `CHANGELOG.md` entries matched at every
+   depth: 187 files instead of 66, 118 of them JS dependencies. Anchoring every entry to the package
+   root fixed it, and CI now fails on any file outside the expected set (fix `f9591fd`).
+2. **`-D warnings` broke the minimal build.** CI sets `RUSTFLAGS: -D warnings` for every crate, which
+   turned two latent warnings on `cargo test --no-default-features` into errors: `src/llm/api.rs`
+   compiled its parsing helpers and the `Capabilities` import with the `api` feature off, and
+   `tests/adapters.rs` imported `adapters::source` unconditionally while only the `.jsonl.zst` test
+   used it. Both are now gated with the feature (fix `8105fb7`).
+3. **Windows could not check out the repository.** A zero-byte file named
+   `tests/snapshots/pipeline__*.snap` — a literal `*` in a filename — made `git checkout` fail with
+   exit 128 before the build started. Deleted (fix `8105fb7`).
+
+**A cross-platform determinism bug that only Windows exposed** (fix `1fc1848`): the pipeline snapshot
+expects `Session source hash: 5eb5de4` and got `8ac319b`. `source_hash` is the sha256 of the session
+file's *bytes*, and with git's default `core.autocrlf=true` Windows checks fixtures out with CRLF. A
+`.gitattributes` pinning `* text=auto eol=lf` fixes it and protects any future binary fixture. This
+is the class of bug that cannot be caught on one platform.
+
+**An unsourced claim removed** (fix `3a458a5`): the README and site advertised "212 MB / 94,164 events
+→ 61 KB handoff / 7.6 s" with no evidence file, no command, and no corpus behind it. Replaced with a
+measured run on the M1 Max against a synthetic 302 MB session — 141,409 events, 288 user turns →
+7.9 KB handoff in 5.0 s, zero model calls — recorded in
+`specs/004-m1-deterministic-handoff-skeleton/evidence/perf-synthetic-2026-09-11.md`. The evidence also
+records the real constraint: ~1.06 GiB peak RSS, about 3.8 bytes per input byte, which leaves little
+margin above §16's 400 MB budget for a 100 MB session. **Do not print a performance number without
+running it.**
+
+**Process debt carried forward:** TDD's RED step was not observed as a separate run for the compaction
+slice (`specs/006-m2-codex-adapter/evidence/T0601-T0603.md` records the gap), and T0604/T0605 remain
+open in that block.
+
 ## 2026-09-11 - Compaction kind in the IR, and `--since-compact` implemented
 
 Commits: `0b81048d81808574c86437e4290f89c629cde40e`
