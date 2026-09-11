@@ -131,8 +131,13 @@ me run it: `list`, `find`, `show`, `extract`, `expand`, `verify`, `redact`, `ski
   `.json` path, or "handoff" which implies a directory. The pane reports the written paths.
 - **FR-015** The git-ignore warning the CLI emits for a non-ignored output directory is shown in the
   pane too — the same rule, the same wording, not a second implementation of it.
-- **FR-016** After extraction the Canvas pane can open the artifact and step through L0–L3; pointers
-  like `[evt a–b]` can be expanded in place through the existing `expand` path.
+- **FR-016** The extraction result is readable **immediately and in place**: on success the Canvas pane
+  opens the artifact at L0 without another keypress, and the reader can step through L0–L3, follow
+  `[evt a–b]` pointers through the existing `expand` path, and see the ledgers alongside. The point is
+  to understand what is about to be handed to another agent *before* handing it over — a developer who
+  has to leave the TUI to read the artifact will not read it.
+- **FR-016a** The same view is reachable for an existing artifact on disk (a previous run, a colleague's
+  `.sctxx/handoff.md`) by path, so the pane is a viewer and not only a receipt.
 
 **Handoff (US1 — the reason for this block)**
 
@@ -157,6 +162,15 @@ me run it: `list`, `find`, `show`, `extract`, `expand`, `verify`, `redact`, `ski
   `AGENTS.md` rule 5).
 - **FR-021** Only agents on an allowlist may be launched, the launch is shown before it runs, and the
   cwd is the session's `cwd` when it still exists (the artifact's reconciliation already knows this).
+- **FR-021a** **The handoff is re-redacted immediately before it is passed to another agent**, as a
+  second pass over the artifact text, and the pane reports what was removed (count and classes, never
+  the secrets). The artifact is already redacted three times on the way out (masked rows, model output,
+  rendered file), so this is deliberately redundant: egress to a different tool is the one boundary
+  where redundancy is cheap and a mistake is unrecoverable. `--redact strict` is available here and
+  applies to the handoff only, never silently to the artifact on disk.
+- **FR-021b** The launch is a **separate, explicit confirmation** from extraction. Producing an artifact
+  never starts another agent as a side effect; a developer who only wanted the file must be able to stop
+  at the file.
 - **FR-022** The terminal pane owns its child process: it dies with the pane, with the TUI, or on
   cancellation, and a crashed child degrades to a message rather than taking the TUI down.
 
@@ -203,23 +217,33 @@ Two constraints this creates:
   that quietly raises the MSRV breaks a CI job and a promise.
 - **The licence facts are in ticket 12**, including the no-deferral rule (FR-028).
 
-- **FR-026** The plan must choose, per pane, between *adopting the stack and writing sctxx-native
-  panes*, *porting a specific croft module*, and *reference only* — with the choice recorded per pane,
-  not as one decision for all four. The expected shape is: stack adopted everywhere; **terminal**
-  ported (its PTY and alacritty glue is the least worth rewriting); **canvas reference only** (a
-  14k-line editor is three times the pane we actually need); file tree and search judged on their own.
-  Vendoring croft wholesale is not defensible at 281k LOC against a <15 MB binary target.
-- **FR-026a** Ported code must build at `sctxx`'s MSRV 1.85; where it cannot, the feature it uses is
-  rewritten or dropped, and the reason recorded.
-- **FR-027** Any ported croft code carries, from the first copied line: the MIT copyright notice, a
-  header naming the upstream file, the upstream version, and what was changed — the same discipline
-  `src/vendor/codex/` already uses for Apache-2.0 code. Note that upstream has **no per-file headers
-  and no NOTICE file** (0 of 178 files carry a copyright line), so the headers are ours to add.
-- **FR-028** Attribution is **not** deferred. The maintainer's instruction was to strip Croft branding
-  and attribute later; stripping the branding is correct (MIT grants no trademark rights), but the MIT
-  licence requires its copyright and permission notice to be retained in copies and substantial
-  portions of the software. A `LICENSE-MIT` and a vendor-manifest row are part of the first ported
-  file, not a later cleanup, and `scripts/check-vendor-headers.sh` covers the new directory too.
+- **FR-026** **Reference only — no croft code is copied for the first slice.** The panes are written
+  on lighter crates that do the same job, chosen with dependency counts off crates.io:
+  `ratatui` 0.30 + `crossterm` 0.29 (rendering), `tui-tree-widget` 0.24 (file tree — 3 deps, instead of
+  croft's 3,434 hand-rolled lines), `ignore` 0.4 (`crate::WalkBuilder`-style walking that respects
+  `.gitignore`), `fuzzy-matcher` 0.3 (1 dep, the `SkimMatcherV2` agentman uses), `portable-pty` 0.9 +
+  `vt100` 0.16 + `tui-term` 0.3 (terminal — vt100's 3 deps replace `alacritty_terminal`'s 17, because
+  sctxx runs one agent in a pane and is not a terminal emulator), `tui-markdown` 0.3 (artifact view),
+  `tui-input` 0.15 (fields). Find-in-files adds **no** dependency: the `ignore` walker plus the
+  `regex` and `memchr` crates `sctxx` already has. Full table and reasoning:
+  [`docs/adr/0003-tui-stack-and-msrv.md`](../../docs/adr/0003-tui-stack-and-msrv.md).
+- **FR-026a** **MSRV moves 1.85 → 1.88**, forced by `ratatui` 0.30.1+, `ignore` 0.4.31+ and
+  `tui-markdown`. It is recorded in `Cargo.toml` (`rust-version`), the CI MSRV job, the README, and the
+  CHANGELOG. `rust-version` is per-package, so the `tui` feature cannot have its own — the bump is the
+  price of one binary with a `--tui` flag, and it is paid once, deliberately.
+- **FR-026b** The TUI ships behind a `tui` feature. `--no-default-features` (the `minimal` build) stays
+  free of ratatui and friends, and the release-binary size is measured when the feature lands against
+  §16's <15 MB target — not assumed.
+- **FR-027** If a specific croft function is later judged worth copying, it is ported *then*, with the
+  MIT copyright notice, a header naming the upstream path and version, and the change made — the same
+  discipline `src/vendor/codex/` uses for Apache-2.0 code. Croft has no per-file headers and no NOTICE
+  file (0 of 178 files), so those are ours to add.
+- **FR-028** **Attribution is not deferred.** Stripping Croft branding is right — MIT grants no
+  trademark rights — but MIT requires its copyright and permission notice be retained in copies and
+  substantial portions of the software. Because FR-026 copies nothing, no notice is owed *today*; the
+  machinery (`LICENSE-MIT`, a `NOTICE` entry, `src/vendor/croft/README.md`, and coverage by
+  `scripts/check-vendor-headers.sh`) is specified so the first copied line is compliant on arrival
+  rather than retrofitted.
 
 **agentman** (`../handyutils/agentman`, the maintainer's own project) is already *"local-first TUI
 session management for the coding agents you use every day"* — a ratatui TUI over the agent stores,

@@ -1,7 +1,7 @@
 # Decide the croft reuse boundary, and the licence mechanics for taking any of it
 
 Type: research
-Status: open
+Status: resolved (2026-09-11) — decision in [ADR 0003](../../../docs/adr/0003-tui-stack-and-msrv.md)
 
 ## Question
 
@@ -56,3 +56,39 @@ what gets dragged along · decision. Plus the proposed attribution file layout, 
 
 Unblocks the `plan` of `specs/024-m8-interactive-tui/`. Spec refs: the block's FR-026 to FR-028
 (FR-028 is the no-deferral rule above). Related: `AGENTS.md` hard rule 1, constitution IV.
+
+## Answer
+
+**Reference only. No croft code is copied for the first slice, and the panes are written on lighter
+crates that do the same job.** Full reasoning and the dependency table are in
+[ADR 0003](../../../docs/adr/0003-tui-stack-and-msrv.md); the substance:
+
+1. **The port is not worth its chrome.** All four croft widgets are individually portable — none has a
+   `crate::app` back-reference — but `theme.rs` (1,181 lines) is required by every pane, and with
+   icons, scrollbar, prefs, workspace, and output the bill is **~28–30k lines for bare panes** and
+   **55–70k at full fidelity**. Croft's canvas, the pane `sctxx` most wants to be small, is its
+   largest: 24,751 lines of editable editor with vim mode and LSP. `sctxx` needs a read-only markdown
+   view of its own artifact.
+2. **The stack is kept, the code is not.** `ratatui` + `crossterm` for rendering, `portable-pty` for
+   the PTY (the one part genuinely worth not rewriting), `tui-tree-widget` (3 deps) instead of 3,434
+   hand-rolled lines, `fuzzy-matcher` (1 dep) for the finder, `tui-term` + **`vt100`** (3 deps) instead
+   of `alacritty_terminal` (17 deps, Apache-2.0) — sctxx runs one agent in a pane, it is not a terminal
+   emulator — and find-in-files on the `ignore` walker plus the **already-present** `regex` and
+   `memchr`, so it costs no new dependency at all.
+3. **MSRV moves 1.85 → 1.88**, because `ratatui` 0.30.1+, `ignore` 0.4.31+ and `tui-markdown` require
+   it. The alternative was pinning a beta of ratatui and year-old versions of every widget, and paying
+   the bump later anyway. `sctxx` is pre-1.0; this is the cheap moment, and it is recorded in
+   `Cargo.toml`, the CI MSRV job, and the CHANGELOG.
+4. **The MIT machinery is defined and currently unused.** Because nothing is copied, there is no notice
+   to carry yet. `LICENSE-MIT`, the `NOTICE` entry, `src/vendor/croft/README.md`, per-file headers, and
+   the header check are all specified so the first copied line is compliant on arrival. **Attribution
+   is still not deferrable** — the earlier instruction to "attribute later" would not have survived a
+   copy; it survives today only because there is nothing to attribute.
+5. **What is taken from croft is knowledge**, and it is worth reading rather than copying: the PTY
+   spawn and, more importantly, its lifetime discipline (`Drop` kills the child and joins the reader
+   thread); the parallel `ignore::WalkBuilder` search with 200 ms debounce and an `AtomicBool` cancel;
+   the flat `SearchHit { path, line_no, line_text }` model; and the confirmation that a hand-rolled
+   file tree is a trap a 3-dependency crate avoids.
+
+**Residual risk:** if a later slice does copy a croft function, the paperwork is a real cost, and the
+temptation to skip it will be highest exactly then. The header check in CI is the mitigation.
