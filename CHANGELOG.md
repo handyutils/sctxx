@@ -52,6 +52,8 @@ bump and a compatibility note.
   Files now rank by edit and read count, commands by recency, errors with unresolved first, and each
   section says what it left out. A section is never rendered empty while entries exist — an empty
   "Error signatures" line reads as "there were none", which is the one thing it must never mean.
+- Fold progress reports each call's wall time. The backend is the slow part and the pipeline cannot
+  show that unless it says so.
 - `--llm-timeout <secs>` for `cli:` backends. The 600 s default is not enough for a fold call over a
   long session: both a 53k-token and a 25k-token chunk call were killed at exactly that mark while
   the tail pass finished in ~30 s, and the chunk's work is discarded when it happens.

@@ -251,6 +251,8 @@ pub fn run(
             ledgers: input.ledgers,
             redact: options.redact,
         };
+        let started = std::time::Instant::now();
+        let before = state.active().len();
         apply_call(
             backend,
             CallRole::Fold,
@@ -263,6 +265,18 @@ pub fn run(
             options,
             true,
         )?;
+        // The wall time is the number that matters to whoever is waiting, and it
+        // is the only way to see that a backend is slow at long context rather
+        // than the pipeline being broken.
+        progress(
+            "fold",
+            &format!(
+                "chunk {}/{total} done in {:.0}s, {} item(s) now active",
+                index + 1,
+                started.elapsed().as_secs_f64(),
+                state.active().len().saturating_sub(before) + before
+            ),
+        );
         state.mark_processed(&chunk.id);
     }
 
@@ -294,6 +308,7 @@ pub fn run(
             premap: 0,
         };
         let user = prompt::render(prompt::Template::FinalPass, &fields, prompt::OPS_SCHEMA);
+        let started = std::time::Instant::now();
         let context = validate::Context {
             chunk_range: range,
             human_text: &human_text,
@@ -313,6 +328,10 @@ pub fn run(
             options,
             true,
         )?;
+        progress(
+            "fold",
+            &format!("final pass done in {:.0}s", started.elapsed().as_secs_f64()),
+        );
         state.mark_processed("final");
     }
 
