@@ -4,7 +4,10 @@
 //! reviewable snapshot diff instead of a silent behavior change, which is the
 //! whole reason the fixture corpus exists.
 
-use sctxx::adapters::{self, source};
+use sctxx::adapters;
+// `source` is only reached by the `.jsonl.zst` test, which needs the feature.
+#[cfg(feature = "zstd")]
+use sctxx::adapters::source;
 use sctxx::ir::{AgentKind, Diagnostic, EventKind, Session};
 use std::path::{Path, PathBuf};
 

@@ -5,7 +5,11 @@
 //! OpenAI-compatible endpoint (OpenRouter, DeepSeek, Ollama, vLLM, LM Studio),
 //! which is why `compat` exists rather than one backend per vendor.
 
-use super::{Backend, Capabilities, Request, Response};
+use super::{Backend, Request, Response};
+// Only the feature-gated `Backend` impl advertises capabilities; without the
+// feature the stub below needs none of it.
+#[cfg(feature = "api")]
+use super::Capabilities;
 use crate::error::{Error, Result};
 
 /// Environment variables that indicate a usable API backend, in `auto` order.
@@ -203,6 +207,7 @@ impl Backend for ApiBackend {
 }
 
 /// Pull the completion text out of either response shape.
+#[cfg(feature = "api")]
 fn extract_text(provider: &str, value: &serde_json::Value) -> Option<String> {
     if provider == "anthropic" {
         let blocks = value.get("content")?.as_array()?;
@@ -223,6 +228,7 @@ fn extract_text(provider: &str, value: &serde_json::Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+#[cfg(feature = "api")]
 fn extract_usage(value: &serde_json::Value) -> (Option<u64>, Option<u64>) {
     let usage = value.get("usage");
     let input = usage
@@ -251,7 +257,9 @@ pub fn detected_keys() -> Vec<&'static str> {
         .collect()
 }
 
-#[cfg(test)]
+/// These exercise the response parsing that only the `api` feature compiles,
+/// so they are gated with it rather than left to fail on a minimal build.
+#[cfg(all(test, feature = "api"))]
 mod tests {
     use super::*;
 
