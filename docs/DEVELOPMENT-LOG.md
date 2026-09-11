@@ -12,6 +12,48 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The TUI starts, and the LLM backends stop writing into your history
+
+Commits: `db8e53f`, `a1b9c65`, `d7363e0`, `97caaed`
+
+**M8 begins: `sctxx --tui` browses sessions.** The first slice of block
+`specs/024-m8-interactive-tui/` is the list you can narrow without knowing an id — fuzzy search over
+title, first message, id and directory; agent/recency/project filters; a preview read from discovery
+alone, so browsing never opens a transcript. MSRV moved 1.85 → 1.88 for the viewport crates
+(`ratatui` 0.30.1+, `ignore` 0.4.31+); `rust-version` is per-package, so a feature cannot carry its own.
+The TUI is behind a default-on `tui` feature that `--no-default-features` excludes. ADR 0003 decided
+the stack — lighter crates, no croft code copied, so the MIT machinery exists and is unused.
+
+**Wayfinder tickets 12, 13 and 14 are closed, which is what gated block 024's plan.** The two that were
+still open turned into ADR 0004 and ADR 0005 and are worth knowing:
+
+- **Seeding a fresh agent session (ADR 0004).** Nothing was reusable: the maintainer's launcher has no
+  prompt, file, or stdin channel. The design is that the artifact **never travels inline** — only a
+  one-line pointer crosses argv, the artifact crosses as a path or over stdin — with a cwd fallback for
+  every agent that asks nothing of the agent and so cannot break. Two findings changed the design rather
+  than decorating it: Claude Code's `--append-system-prompt-file` is **not in `--help`** (only in the
+  `--bare` prose, confirmed by argument parsing), and it **fails lazily and silently** on an unreadable
+  path, so the launch must pre-check every path it names. A `--version` probe cannot test flag existence
+  — version printing short-circuits before validation.
+- **sctxx and agentman (ADR 0005).** `sctxx` keeps the only scanner and owns discovery semantics; no
+  code is shared either way yet; the boundary is the versioned `list --json` contract. A shared crate is
+  deferred with a trigger (after block 022) rather than rejected, because freezing discovery now would
+  version an API known to be incomplete.
+
+**The `cli:` backends were polluting the user's own session history, and that is now fixed.** Every
+`cli:claude` completion wrote a real session into `~/.claude/projects`: the backends run in an empty
+scratch directory so the agent cannot see the repository, but Claude Code records a session *per working
+directory*, so the scratch cwd only named the pollution. `sctxx list` then showed sctxx's own fold
+prompts as sessions. Each CLI has a switch for this (`--no-session-persistence`, `--ephemeral`,
+`--no-session`); all three templates pass it, and a unit test fails if one loses it — the failure is
+silent, so it has to be a test rather than a review. The templates also now record the CLI version each
+argv was verified against, which the doc comment had promised since the table was written.
+
+**What later work must know:** block 024's `tasks.md` is authoritative (T2401–T2402 done, T2403 gated
+behind nothing and gating every pane); every seeding row in ADR 0004 is *probed, not verified end to
+end*, and T2419 is the task that starts real sessions; sessions already written by earlier versions were
+deliberately **not** deleted — they are in the user's store.
+
 ## 2026-09-11 - npm works; the first real session found two artifact bugs
 
 Commits: `2de85f0`, `c58e79c`, `d5c8a28` · Release re-runs: `34559661480`, `34560054937`

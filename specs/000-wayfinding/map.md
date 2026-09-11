@@ -73,12 +73,17 @@ Everything before that (M0) made the repository safe to build in public.
   the adapter set stops moving) rather than rejected, because agentman's generic walker is lossy in
   ways already observed while `sctxx`'s per-agent adapters are still being added to. Launching splits by
   semantics: agentman resumes, `sctxx` seeds a new session.
+- [`cli:` backend command templates](issues/06-cli-backend-command-templates.md) — 2026-09-11:
+  **resolved by the implementation**, re-verified on Claude Code 2.1.268, Codex 0.153.4 and Pi 0.85.1.
+  Each argv now carries the version it was verified against. The finding the ticket did not anticipate:
+  every completion used to leave a session in the user's own history, because Claude Code records a
+  session per working directory and the scratch cwd only named the pollution — now suppressed with each
+  CLI's own switch (`--no-session-persistence`, `--ephemeral`, `--no-session`) behind a unit test.
 
 ## Not yet specified
 
 - Whether v0.1.0 ships with the LLM fold or deterministic-only.
 - Exact Claude Code sidechain/subagent layout across versions.
-- `cli:` backend command templates per agent CLI version.
 - Chunk-size defaults, judge independence, host mode vs MCP ordering (M3–M6).
 - Artifact location policy and git exclusion.
 
