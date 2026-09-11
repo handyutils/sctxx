@@ -22,6 +22,11 @@ bump and a compatibility note.
 - Reading Codex `compacted.replacement_history`: a message envelope nests its text under `content`,
   so a local compaction summary was previously read as empty. Nesting is now walked, bounded to eight
   levels so a corrupt session file cannot exhaust the stack.
+- **The published crate no longer contains the website's `node_modules`.** Cargo matches the `include`
+  list the way gitignore does, so the bare `README.md`, `LICENSE`, `NOTICE`, and `CHANGELOG.md` entries
+  matched files at every depth — 118 of them came from `website/node_modules`. Every entry is now
+  anchored to the package root, the tarball is back to 66 files, and CI fails on any file outside the
+  expected set.
 
 ## [0.1.0] - 2026-09-11
 

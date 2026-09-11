@@ -11,16 +11,21 @@ documentation = "https://handyutils.github.io/sctxx"
 readme = "README.md"
 keywords = ["cli", "agent", "llm", "context", "handoff"]
 categories = ["command-line-utilities", "development-tools"]
+# Cargo matches these the way gitignore matches: a pattern without a leading
+# slash applies at every depth. `README.md` therefore matched every README in
+# the tree — including the ~60 inside `website/node_modules`, which is how a
+# JS dependency tree ended up in the crate tarball. Every entry is anchored to
+# the package root on purpose; keep it that way.
 include = [
-    "src/**/*.rs",
-    "src/vendor/codex/README.md",
-    "prompts/**/*.md",
-    "schemas/**/*.json",
-    "skill/**",
-    "LICENSE",
-    "NOTICE",
-    "README.md",
-    "CHANGELOG.md",
+    "/src/**/*.rs",
+    "/src/vendor/codex/README.md",
+    "/prompts/**/*.md",
+    "/schemas/**/*.json",
+    "/skill/**",
+    "/LICENSE",
+    "/NOTICE",
+    "/README.md",
+    "/CHANGELOG.md",
 ]
 
 [[bin]]

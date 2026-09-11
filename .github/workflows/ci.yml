@@ -53,6 +53,21 @@ jobs:
             }
           done
 
+      - name: The crate ships nothing but its own files
+        run: |
+          # `include` is matched the way gitignore is: a pattern with no leading
+          # slash applies at every depth, so a bare `README.md` once dragged ~60
+          # files out of website/node_modules into the tarball. Anything below
+          # is a leak, not a packaging choice. `.cargo_vcs_info.json` and
+          # `Cargo.toml.orig` are written by cargo itself.
+          list=$(cargo package --list --allow-dirty)
+          unexpected=$(echo "$list" | grep -vE '^(src/|prompts/|schemas/|skill/|LICENSE$|NOTICE$|README\.md$|CHANGELOG\.md$|Cargo\.toml$|Cargo\.toml\.orig$|Cargo\.lock$|\.cargo_vcs_info\.json$)' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::unexpected files in the crate tarball:"
+            echo "$unexpected"
+            exit 1
+          fi
+
   test:
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
