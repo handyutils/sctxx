@@ -210,6 +210,38 @@ impl Extraction {
 /// the caller decides how to surface them (text or NDJSON on stderr).
 pub type Progress<'a> = &'a mut dyn FnMut(&str, &str);
 
+/// A flag a host can set to stop a running extraction.
+///
+/// Checked at every stage boundary and before every model call, which is where
+/// the time goes: an extraction that spends minutes in the fold must be
+/// stoppable between its chunks, not only between its stages.
+#[derive(Debug, Clone, Default)]
+pub struct Cancel(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Cancel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Ask the running extraction to stop at its next boundary.
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Stop here if someone asked.
+    pub fn check(&self) -> Result<()> {
+        if self.cancelled() {
+            Err(Error::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Where a `--since-compact` run starts.
 ///
 /// A *legacy* compaction is a real history reset: everything before it is gone
@@ -245,7 +277,21 @@ pub fn extract(
     options: &ExtractOptions,
     progress: Progress<'_>,
 ) -> Result<Extraction> {
+    extract_interruptible(summary, options, progress, &Cancel::new())
+}
+
+/// `extract`, with a way to stop it.
+///
+/// The CLI calls [`extract`] and therefore cannot be interrupted; the TUI calls
+/// this and can.
+pub fn extract_interruptible(
+    summary: &SessionSummary,
+    options: &ExtractOptions,
+    progress: Progress<'_>,
+    cancel: &Cancel,
+) -> Result<Extraction> {
     let started = std::time::Instant::now();
+    cancel.check()?;
 
     // S0 — parse and resolve the active branch.
     progress("parse", &format!("reading {}", summary.path.display()));
@@ -314,6 +360,8 @@ pub fn extract(
         }
     }
 
+    cancel.check()?;
+
     // S1 — deterministic ledgers.
     let ledgers = ledgers::build(&session, options.redact);
     progress(
@@ -378,6 +426,7 @@ pub fn extract(
                 ),
             );
             let fold_options = fold::FoldOptions {
+                cancel: cancel.clone(),
                 focus: options.focus.clone(),
                 // `fast` never premaps; the point of fast is one pass.
                 premap_threshold: if options.mode == Mode::Fast {

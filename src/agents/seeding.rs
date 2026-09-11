@@ -61,6 +61,9 @@ pub struct Launch {
     pub args: Vec<OsString>,
     pub cwd: PathBuf,
     pub route: Route,
+    /// The handoff this launch names, kept so it can be checked immediately
+    /// before the spawn rather than only when the launch was planned.
+    pub artifact: PathBuf,
     /// The command as it will be shown. A sentence for a human, never a string
     /// handed to a shell.
     pub display: String,
@@ -73,6 +76,22 @@ impl Launch {
     /// is the directory the session was about — which is where a fresh agent
     /// should start, because that is also where `AGENTS.md` lives.
     pub fn interactive(agent: &Agent, artifact: &Path, session_cwd: Option<&Path>) -> Result<Self> {
+        let launch = Self::plan(agent, artifact, session_cwd)?;
+        // Checked here so a caller that is about to run gets the refusal, and
+        // again in `run` so a caller that planned earlier still cannot spawn
+        // with a handoff that has gone.
+        readable_file(&launch.artifact)?;
+        Ok(launch)
+    }
+
+    /// Work out what would run, without requiring the artifact to exist yet.
+    ///
+    /// The TUI has to show the command *before* it extracts the artifact the
+    /// command names (FR-021), so planning and checking have to be separable.
+    /// Everything that can be known up front is decided here; whether the
+    /// handoff is readable is decided in [`Launch::run`], immediately before
+    /// anything is spawned.
+    pub fn plan(agent: &Agent, artifact: &Path, session_cwd: Option<&Path>) -> Result<Self> {
         // The allowlist is structural: a `Launch` can only name a program that
         // the detector found for an agent sctxx knows, and there is no
         // constructor that takes a command. This check is for the case a future
@@ -90,8 +109,7 @@ impl Launch {
             ))
         })?;
 
-        // Check what we are about to name, because the agent will not.
-        let artifact = readable_file(artifact)?;
+        let artifact = artifact.to_path_buf();
         let cwd = launch_dir(session_cwd, &artifact);
         let pointer = pointer_sentence(&artifact);
 
@@ -116,6 +134,7 @@ impl Launch {
             cwd,
             route,
             display,
+            artifact,
         })
     }
 
@@ -126,6 +145,9 @@ impl Launch {
     /// ([ADR 0006](../../docs/adr/0006-hand-over-the-terminal-to-the-launched-agent.md)).
     /// The caller restores the TUI when this returns.
     pub fn run(&self) -> Result<i32> {
+        // The agent answers an unreadable file flag with silence, so this is the
+        // last moment sctxx can say something useful (ADR 0004).
+        readable_file(&self.artifact)?;
         let status = Command::new(&self.program)
             .args(&self.args)
             .current_dir(&self.cwd)

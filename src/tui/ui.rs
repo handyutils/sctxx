@@ -16,6 +16,7 @@ use super::form::Form;
 use super::preview::LedgerPreview;
 use super::{App, HandoffState, Mode, PreviewState, RunState};
 use crate::VERSION;
+use crate::agents::seeding::Launch;
 
 /// Accent colours kept in one place so the two screens cannot drift.
 const ACCENT: Color = Color::LightGreen;
@@ -51,7 +52,9 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         // the last step of its flow and needs the room.
         match (&app.handoff, &app.form, app.mode) {
             (Some(state), _, _) => handoff_pane(frame, body[1], app, state),
-            (None, Some(form), _) => extract_pane(frame, body[1], form, &app.run),
+            (None, Some(form), _) => {
+                extract_pane(frame, body[1], form, &app.run, app.resolved_llm.as_deref())
+            }
             (None, None, Mode::OpenArtifact) => open_artifact_pane(frame, body[1], app),
             (None, None, _) => preview(frame, body[1], &app.browser, app.preview_state()),
         }
@@ -291,49 +294,90 @@ fn contents(lines: &mut Vec<Line<'static>>, ledger: &LedgerPreview) {
 /// Every field here was read from clap by `form.rs`: the flag, the value, and
 /// whether it is a toggle, a choice, or text. Nothing in this function decides
 /// what a field *is*, which is what keeps the form and the CLI the same thing.
-fn extract_pane(frame: &mut Frame, area: Rect, form: &Form, run: &RunState) {
+fn extract_pane(
+    frame: &mut Frame,
+    area: Rect,
+    form: &Form,
+    run: &RunState,
+    resolved_llm: Option<&str>,
+) {
     let block = Block::default().borders(Borders::ALL).title(" extract ");
     let inner = area.height.saturating_sub(2) as usize;
 
     // The run state goes first so a result can never be scrolled off the bottom,
-    // and the focused field's help goes last because it is the least costly thing
+    // and the focused row's help goes last because it is the least costly thing
     // to lose on a short terminal.
     let mut lines = run_lines(run);
     lines.push(Line::default());
-    let list_height = inner.saturating_sub(lines.len() + 2).max(1);
-    let first = form.scroll_for(list_height);
+    let rows_height = inner.saturating_sub(lines.len() + 2).max(1);
+    let first = form.scroll_for_rows(rows_height);
 
-    for (index, field) in form
-        .fields()
-        .iter()
-        .enumerate()
-        .skip(first)
-        .take(list_height)
-    {
+    let highlight = Style::default()
+        .bg(ACCENT)
+        .fg(Color::Black)
+        .add_modifier(Modifier::BOLD);
+
+    // The fields and the action are drawn as one list of rows, so the reader can
+    // see where "run" lives instead of being told.
+    for index in first..(first + rows_height).min(form.rows()) {
         let focused = index == form.focus();
-        let text = format!(
-            "{} {:<20} {}",
-            if focused { "▌" } else { " " },
-            field.flag,
-            field.shown()
-        );
-        let style = if focused {
-            Style::default()
-                .bg(ACCENT)
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        lines.push(Line::styled(truncate(&text, 240), style));
+        match form.fields().get(index) {
+            Some(field) => {
+                // `--llm auto` is the one value whose consequence is invisible,
+                // so it is spelled out where it is set.
+                let consequence = if field.id == "llm" && field.value == "auto" {
+                    resolved_llm
+                        .map(|resolved| format!("  \u{2192} {resolved}"))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                let text = format!(
+                    "{} {:<18} {}{}",
+                    if focused { "\u{258c}" } else { " " },
+                    field.flag,
+                    field.shown(),
+                    consequence
+                );
+                lines.push(Line::styled(
+                    truncate(&text, 240),
+                    if focused { highlight } else { Style::default() },
+                ));
+            }
+            None => {
+                let text = format!(
+                    "{} {}",
+                    if focused { "\u{258c}" } else { " " },
+                    run_row(form, run)
+                );
+                let style = if focused {
+                    highlight
+                } else {
+                    Style::default().fg(ACCENT)
+                };
+                lines.push(Line::styled(truncate(&text, 240), style));
+            }
+        }
     }
 
     lines.push(Line::default());
-    if let Some(field) = form.focused() {
-        lines.push(Line::styled(
-            format!(" {}", truncate(&field.help, 300)),
-            Style::default().fg(DIM),
-        ));
+    // A hint about the last keypress wins over the standing help: it answers
+    // something the reader just did.
+    match form.hint() {
+        Some(hint) => lines.push(Line::styled(
+            format!(" {}", truncate(hint, 300)),
+            Style::default().fg(WARN),
+        )),
+        None => {
+            let help = match form.focused() {
+                Some(field) => format!("{} \u{2014} {}", field.affordance(), field.help),
+                None => "enter runs the extraction".to_string(),
+            };
+            lines.push(Line::styled(
+                format!(" {}", truncate(&help, 300)),
+                Style::default().fg(DIM),
+            ));
+        }
     }
 
     frame.render_widget(
@@ -342,6 +386,21 @@ fn extract_pane(frame: &mut Frame, area: Rect, form: &Form, run: &RunState) {
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+/// The action row: what pressing enter there does, spelled out.
+///
+/// The values shown are the ones that decide the cost and the destination,
+/// because those are what a developer wants to know before committing to a run
+/// that can take minutes.
+fn run_row(form: &Form, run: &RunState) -> String {
+    if run.running() {
+        return "stop  \u{b7} stops at the next step".to_string();
+    }
+    let mode = form.get("mode").unwrap_or("standard");
+    let llm = form.get("llm").unwrap_or("auto");
+    let out = form.get("out").unwrap_or("");
+    format!("run  \u{b7} mode {mode} \u{b7} llm {llm} \u{b7} writes {out}")
 }
 
 /// The handoff: choose an agent, then confirm exactly what will run.
@@ -412,39 +471,69 @@ fn handoff_pane(frame: &mut Frame, area: Rect, app: &App, state: &HandoffState) 
                 }
             }
         }
-        HandoffState::Confirming(launch) => {
+        HandoffState::Confirming { agent, destination } => {
+            let target = app.agents.as_ref().and_then(|agents| agents.get(*agent));
             lines.push(Line::styled(
-                " this exact command will run",
+                " this is what will happen",
                 Style::default().fg(ACCENT),
             ));
-            lines.push(field("agent", launch.agent.to_string()));
-            lines.extend(wrapped_field("route", launch.route.label(), width));
+            lines.push(field(
+                "step 1",
+                "extract this session — deterministically, no model, no tokens".to_string(),
+            ));
             lines.extend(wrapped_field(
-                "cwd",
-                &launch.cwd.display().to_string(),
+                "writes",
+                &destination.display().to_string(),
                 width,
             ));
-            if launch.route.is_fallback() {
-                lines.push(Line::styled(
-                    " the detected version is not one the seeding channel was verified on,",
-                    Style::default().fg(WARN),
-                ));
-                lines.push(Line::styled(
-                    " so the agent gets the pointer and the directory, and no flags.",
-                    Style::default().fg(WARN),
-                ));
+            lines.push(Line::styled(
+                "         five files; the agent reads handoff.md inside it",
+                Style::default().fg(DIM),
+            ));
+            lines.push(field(
+                "step 2",
+                match target {
+                    Some(agent) => format!("start a new {} session with it", agent.label),
+                    None => "start a new agent session with it".to_string(),
+                },
+            ));
+            // The exact command, worked out now rather than after the
+            // extraction, so it can be read before anything is spent (FR-021).
+            if let (Some(agent), Some(session)) = (target, app.handoff_session.as_ref()) {
+                match Launch::plan(
+                    agent,
+                    &destination.join("handoff.md"),
+                    session.cwd.as_deref().map(std::path::Path::new),
+                ) {
+                    Ok(launch) => {
+                        lines.extend(wrapped_field("route", launch.route.label(), width));
+                        for chunk in wrap_hard(&launch.display, width.saturating_sub(1)) {
+                            lines.push(Line::styled(format!(" {chunk}"), Style::default().fg(DIM)));
+                        }
+                        if launch.route.is_fallback() {
+                            lines.push(Line::styled(
+                                format!(
+                                    " {} is installed at a version the seeding channel was not verified on,",
+                                    agent.label
+                                ),
+                                Style::default().fg(WARN),
+                            ));
+                            lines.push(Line::styled(
+                                " so it gets the pointer and the directory, and no flags.",
+                                Style::default().fg(WARN),
+                            ));
+                        }
+                    }
+                    Err(error) => {
+                        lines.push(Line::styled(format!(" {error}"), Style::default().fg(WARN)))
+                    }
+                }
             }
+            lines.push(Line::styled(
+                "         the whole terminal is handed over, and you come back here when it exits",
+                Style::default().fg(DIM),
+            ));
             lines.push(Line::default());
-            // The exact command, whole. Broken across lines by us rather than
-            // left to a wrapper that might quietly drop the end of a path.
-            for chunk in wrap_hard(&launch.display, width.saturating_sub(1)) {
-                lines.push(Line::raw(format!(" {chunk}")));
-            }
-            lines.push(Line::default());
-            // Measured, not assumed: both Claude Code and Codex stop at their own
-            // trust prompt for a directory they have not seen before, before the
-            // first turn. That prompt is theirs and sctxx must not bypass it, so
-            // the least it can do is not let it be a surprise (T2419).
             lines.push(Line::styled(
                 " a directory the agent has not seen before will ask to be trusted first.",
                 Style::default().fg(DIM),
@@ -622,6 +711,16 @@ fn run_lines(run: &RunState) -> Vec<Line<'static>> {
             }
             out
         }
+        RunState::Cancelled => vec![
+            Line::styled(
+                " stopped",
+                Style::default().fg(WARN).add_modifier(Modifier::BOLD),
+            ),
+            Line::styled(
+                " you asked it to stop, so nothing was written",
+                Style::default().fg(DIM),
+            ),
+        ],
         RunState::Failed(reason) => vec![
             Line::styled(
                 " failed",
@@ -640,7 +739,7 @@ fn footer(frame: &mut Frame, area: Rect, browser: &Browser, mode: Mode) {
         Mode::Canvas => " 1-4 layer · tab next · j/k scroll · enter follow pointer · esc back ",
         Mode::OpenArtifact => " type a path to a handoff artifact · enter open · esc cancel ",
         Mode::Browse => {
-            " j/k move · / search · a agent · r date · p project · e extract · h handoff · q quit "
+            " j/k move · / search · h hand off · e extract options · a agent · r date · q quit "
         }
     };
     let lines = vec![
@@ -787,14 +886,6 @@ mod tests {
             diagnostics: 2,
             diagnostic: Some("line 91: unexpected end of JSON".into()),
         }
-    }
-
-    /// The screen with its line breaks removed, for asserting on a value the
-    /// pane wraps at a space.
-    fn unwrapped(text: &str) -> String {
-        text.chars()
-            .filter(|character| *character != '\n')
-            .collect()
     }
 
     /// The screen with everything that is not part of a path or a flag removed,
@@ -1025,6 +1116,7 @@ mod tests {
             },
         ]);
         app.handoff = Some(HandoffState::Choosing);
+        app.handoff_session = app.browser.selected().cloned();
         app.mode = Mode::Handoff;
         (dir, app)
     }
@@ -1079,46 +1171,47 @@ mod tests {
     }
 
     #[test]
-    fn the_confirmation_shows_the_exact_command_before_it_runs() {
+    fn the_confirmation_says_where_it_writes_and_what_starts() {
         let (_dir, mut app) = handoff_app();
-        let launch = app.build_launch(0).expect("a launch");
-        app.handoff = Some(HandoffState::Confirming(Box::new(launch)));
+        app.handoff = Some(HandoffState::Confirming {
+            agent: 0,
+            destination: PathBuf::from("/projects/acme/.sctxx"),
+        });
 
         let text = screen(&app, 150, 44);
         let flat = squashed(&text);
-        assert!(text.contains("this exact command will run"), "{text}");
-        assert!(flat.contains("--append-system-prompt-file"), "{text}");
-        assert!(flat.contains("/usr/local/bin/claude"), "{text}");
-        assert!(flat.contains("systempromptfromtheartifact'spath"), "{text}");
-        assert!(flat.contains("Readthehandoffat"), "{text}");
-        // The whole path, not a prefix of it.
+        // The three questions a developer actually has.
+        assert!(flat.contains("thisiswhatwillhappen"), "{text}");
         assert!(
-            flat.contains("handoff.md"),
-            "the command must be complete:\n{text}"
+            flat.contains("nomodelnotokens"),
+            "no model, and it says so:\\n{text}"
         );
-        // An agent whose version was verified is not warned about.
-        assert!(!text.contains("no flags"), "{text}");
+        assert!(
+            flat.contains("/projects/acme/.sctxx"),
+            "where it writes, in full:\\n{text}"
+        );
+        assert!(flat.contains("startanewClaudeCodesession"), "{text}");
+        // And the prompt they will meet first.
+        assert!(flat.contains("asktobetrustedfirst"), "{text}");
     }
 
     #[test]
-    fn an_unverified_version_says_no_flags_will_be_used() {
+    fn an_unverified_version_warns_that_no_flags_will_be_used() {
         let (_dir, mut app) = handoff_app();
-        // The same agent, detected at a version ADR 0004 never checked.
         if let Some(agents) = app.agents.as_mut()
             && let Some(claude) = agents.first_mut()
         {
             claude.version = Some("9.9.9".into());
         }
-        let launch = app.build_launch(0).expect("a launch");
-        assert!(launch.route.is_fallback());
-        app.handoff = Some(HandoffState::Confirming(Box::new(launch)));
-
+        app.handoff = Some(HandoffState::Confirming {
+            agent: 0,
+            destination: PathBuf::from("/tmp/.sctxx"),
+        });
         let text = screen(&app, 150, 44);
-        let flat = unwrapped(&text);
-        assert!(flat.contains("not one the seeding channel"), "{text}");
-        assert!(text.contains("no flags"), "{text}");
-        // And the flag really is absent from the command.
-        assert!(!flat.contains("--append-system-prompt-file"), "{text}");
+        let flat = squashed(&text);
+        assert!(flat.contains("seedingchannelwasnotverifiedon"), "{text}");
+        assert!(flat.contains("andnoflags"), "{text}");
+        assert!(flat.contains("aone-linepointer"), "{text}");
     }
 
     #[test]
@@ -1143,7 +1236,7 @@ mod tests {
         // A feature nobody can find is not a feature: `e` and `h` are the two
         // that carry the whole flow.
         let text = screen(&app(), 150, 44);
-        for key in ["/ search", "e extract", "h handoff", "q quit"] {
+        for key in ["/ search", "h hand off", "e extract options", "q quit"] {
             assert!(
                 text.contains(key),
                 "missing {key:?} from the footer:\n{text}"

@@ -12,6 +12,14 @@ pub enum Error {
     #[error("usage: {0}")]
     Usage(String),
 
+    /// A host asked a running extraction to stop.
+    ///
+    /// The CLI never produces this — a command either finishes or is killed —
+    /// so no published exit code changes. It exists for the TUI, where an
+    /// extraction can take minutes in front of someone who wants it to stop.
+    #[error("cancelled")]
+    Cancelled,
+
     #[error("session not found: {0}")]
     SessionNotFound(String),
 
@@ -69,6 +77,9 @@ impl Error {
     pub fn exit_code(&self) -> i32 {
         match self {
             Error::Usage(_) => 2,
+            // A cancellation is not a failure, but the CLI cannot produce one;
+            // see the variant's comment.
+            Error::Cancelled => 1,
             Error::Ambiguous { .. } => 3,
             Error::SessionNotFound(_) => 4,
             Error::UnknownFormat(_) | Error::ParseFailureRate { .. } => 5,

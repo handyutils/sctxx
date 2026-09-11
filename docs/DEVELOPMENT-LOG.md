@@ -12,6 +12,60 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The main line was behind its own machinery
+
+Commits: `<pending>`
+
+**The critique was right and it was about fundamentals, not polish.** Using the TUI as a developer
+would — search a session, then try to get the context out — meant opening a form of nineteen flags,
+typing at fields that silently ignored typing, and pressing `enter`, which did not mean "commit" but
+"run". What ran was `--llm auto` → `cli:claude`. Measured on that session (`--dry-run`, no model
+called):
+
+```
+events:         103727 (46634 active, 273 user turns)
+masked rows:    17088  (812830 tokens)
+chunks to fold: 40     (807372 tokens)
+planned calls:  41 fold + 40 premap
+```
+
+**About 813,000 input tokens across 81 model calls**, started by a keystroke that looked like it meant
+"next field", with no warning and no way to stop it.
+
+**The block's own purpose was behind its own machinery.** The main line is: grab any session from any
+agent → extract its context → wire that context into a new session of any coding agent. The handoff
+*was* that feature, and it required an extraction first — so the shortest path to the point of the tool
+ran through a form that was beside the point.
+
+**What changed.**
+
+- **`h` is the feature.** It works straight from a session: pick an agent, confirm, done. It performs
+  the extraction itself. No form, no prior step.
+- **The extraction it performs is deterministic** (`--llm none`). The deterministic artifact already
+  carries every `[evt a–b]` pointer, every ledger and the recency tail, which is what a receiving agent
+  needs — at zero tokens and in seconds. The fold is a deliberate choice made through `e`, where it
+  belongs, not a default to fall into.
+- **The confirmation says where and what.** The destination is resolved and shown in full
+  (`/Users/…/project/.sctxx`), never as `.sctxx/`, because a relative path does not answer "where did
+  that go?". The exact command is shown too — `Launch::plan` works out the argv without requiring the
+  artifact to exist, while `Launch::run` still re-checks it immediately before spawning, so ADR 0004's
+  guarantee survives the display being honest.
+- **An artifact already on disk for that session is reused**, matched through
+  `artifact::source_reference`, so a handoff of something already extracted does not redo the work.
+- **Keys say what they do.** `enter` commits a field and advances; running is a row at the bottom that
+  the reader navigates to and can see ("run · mode standard · llm auto → cli:claude · writes
+  .sctxx/"). Typing at a field that is not typed into now explains itself instead of doing nothing.
+  While a run is going, that row becomes "stop", and the run is genuinely cancellable: `Cancel` is
+  checked at every stage boundary **and before every model call**, because that is where the minutes
+  are.
+- **Three flags left the form**, with reasons: `--format` and `--progress` describe stdout and stderr,
+  and a full-screen interface writes neither (FR-004); `--dry-run` prints a plan and exits. The drift
+  test asserts the exclusions in both directions, so a new flag forces a decision and a stale entry
+  fails.
+
+**The lesson worth keeping:** a feature can be complete, tested and correct while the reason anyone
+would use it stays three steps deep. `h` did everything it promised and still did not do the job.
+
 ## 2026-09-11 - The artifact reads in place, and a cursor bug the tests found
 
 Commits: `d3c854b`

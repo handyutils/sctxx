@@ -25,6 +25,8 @@ use state::FoldState;
 /// Fold configuration.
 #[derive(Debug, Clone)]
 pub struct FoldOptions {
+    /// A host's request to stop. Checked before every model call.
+    pub cancel: crate::pipeline::Cancel,
     /// Optional user intent that biases extraction.
     pub focus: Option<String>,
     /// Run the isolated premap pass when there are more chunks than this.
@@ -39,6 +41,7 @@ pub struct FoldOptions {
 impl Default for FoldOptions {
     fn default() -> Self {
         Self {
+            cancel: crate::pipeline::Cancel::new(),
             focus: None,
             premap_threshold: 4,
             concurrency: 4,
@@ -90,13 +93,15 @@ pub fn run(
     // S3a premap: independent per chunk, so it parallelizes. Its output is
     // advisory; the sequential pass still decides what enters the state.
     let premap_notes = if input.plan.chunks.len() > options.premap_threshold {
-        premap(input, backend, options, &focus, &mut report)
+        premap(input, backend, options, &focus, &mut report)?
     } else {
         vec![String::new(); input.plan.chunks.len()]
     };
 
     // S3b the sequential anchored fold.
     for (index, chunk) in input.plan.chunks.iter().enumerate() {
+        // Between chunks, which is where a minute of waiting accumulates.
+        options.cancel.check()?;
         let range = EvtRange::new(chunk.evt_start, chunk.evt_end);
         let rows = &input.rows[chunk.rows.clone()];
         let mut chunk_text = crate::pipeline::mask::render(rows);
@@ -142,6 +147,7 @@ pub fn run(
 
     // S3c the final pass over the recency tail, which the fold never saw.
     if !input.plan.tail.is_empty() {
+        options.cancel.check()?;
         let rows = &input.rows[input.plan.tail.clone()];
         let range = EvtRange::new(
             rows.first().map(|row| row.evt).unwrap_or(0),
@@ -287,7 +293,7 @@ fn premap(
     options: &FoldOptions,
     focus: &str,
     report: &mut FoldReport,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     let chunks = &input.plan.chunks;
     let concurrency = options.concurrency.clamp(1, 16);
     let mut notes = vec![String::new(); chunks.len()];
@@ -295,6 +301,7 @@ fn premap(
     let mut calls = 0usize;
 
     for (batch_index, batch) in chunks.chunks(concurrency).enumerate() {
+        options.cancel.check()?;
         let offset = batch_index * concurrency;
         let results: Vec<(usize, std::result::Result<String, String>)> =
             std::thread::scope(|scope| {
@@ -355,7 +362,7 @@ fn premap(
     report.premap_calls = calls;
     report.calls += calls;
     report.warnings.extend(warnings);
-    notes
+    Ok(notes)
 }
 
 /// Reduce a premap response to the candidate lines the fold call will read.

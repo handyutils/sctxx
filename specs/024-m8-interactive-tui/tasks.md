@@ -4,6 +4,12 @@
 ADR 0003 (stack and MSRV), ADR 0004 (launch and seeding), ADR 0005 (discovery boundary)
 **Evidence**: [`evidence/`](evidence/)
 
+> **The main line, stated once.** Grab any session from any agent → extract its context → wire that
+> context into a new session of any coding agent. Everything in this block exists to serve that
+> sentence, and anything that does not is secondary. The two keypresses are `h` then `enter`; the
+> verification is T2419; the token cost of the *default* path is zero by construction, because the
+> deterministic artifact is the product and the model is an option.
+
 The ID space here is authoritative. Tasks are checked only after a RED/GREEN loop, the gate, and (where
 the task produces a finding rather than code) an evidence file.
 
@@ -149,6 +155,11 @@ task says which library function is being wrapped, not reimplemented.
     `tui::tests::the_handoff_is_two_steps_and_the_first_one_runs_nothing`
   - Note: choosing and confirming are separate steps because FR-021b requires that extraction never
     launches anything by itself
+  - **Amended 2026-09-11:** the handoff extracts for itself. Requiring a prior extraction was the
+    block's own purpose pushed behind its own machinery. The confirmation now names the destination in
+    full (absolute, not `.sctxx/`), states that the extraction is deterministic and costs no tokens,
+    and shows the exact command — worked out with `Launch::plan`, which plans without requiring the
+    artifact to exist, while `Launch::run` still checks it immediately before spawning (ADR 0004)
 
 ## Open
 

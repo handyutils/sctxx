@@ -65,9 +65,18 @@ from the dependency list.
 
 **US1 — Hand off to another agent (P0).** I open `sctxx --tui`, the SCTXX tab is already showing my
 recent sessions. I type a few characters of a keyword, arrow down to the one I want, and press enter
-to see a preview. I press `h` for handoff, choose `claude` from the list of installed agents, choose
-where the artifact goes, and confirm. The Terminal pane opens with a *new* Claude Code session whose
-first message already contains the handoff. I keep working without retyping the goal.
+to see a preview. I press `h` for handoff, choose `claude` from the list of installed agents, and
+confirm. The Terminal pane opens with a *new* Claude Code session whose first message already contains
+the handoff. I keep working without retyping the goal.
+
+**US1 is two keypresses, and the handoff does the extraction.** It does not require one first, and it
+does not go through the extraction form: `h` on a session *is* the feature. The confirmation names the
+directory the context will be written to (in full, absolute) and the exact command that will run, both
+before anything happens. The extraction it performs is **deterministic** (`--llm none`): the
+deterministic artifact already carries every `[evt a–b]` pointer, every ledger, and the recency tail,
+which is what a receiving agent needs, and it costs no tokens. Measured on a 103,727-event session, the
+fold would have been 41 fold calls plus 40 premap calls — about 813,000 input tokens. That is a
+deliberate choice a developer can make through `e`, not a default to fall into.
 
 **US2 — Find the session I mean (P0).** I do not know the id and there are 640 sessions on this
 machine. I filter by agent (`codex`), narrow by date (this week), and type a fuzzy match on what I

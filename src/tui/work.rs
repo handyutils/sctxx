@@ -22,8 +22,8 @@ use crate::adapters::{self, discovery, discovery::SessionSummary};
 use crate::agents::{self, Agent};
 use crate::cli::GlobalArgs;
 use crate::ir::{AgentKind, EventIdx};
-use crate::pipeline::artifact;
 use crate::pipeline::{self, ExtractOptions};
+use crate::pipeline::{Cancel, artifact};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -62,6 +62,8 @@ enum Job {
         summary: SessionSummary,
         options: Box<ExtractOptions>,
         out: PathBuf,
+        /// The host's flag for stopping it.
+        cancel: Cancel,
     },
 }
 
@@ -169,11 +171,18 @@ impl Worker {
     }
 
     /// Run an extraction. Only the UI decides when this is legal.
-    pub fn extract(&self, summary: &SessionSummary, options: ExtractOptions, out: PathBuf) {
+    pub fn extract(
+        &self,
+        summary: &SessionSummary,
+        options: ExtractOptions,
+        out: PathBuf,
+        cancel: Cancel,
+    ) {
         let _ = self.jobs.send(Job::Extract {
             summary: summary.clone(),
             options: Box::new(options),
             out,
+            cancel,
         });
     }
 
@@ -241,8 +250,9 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>, generation: &AtomicU64, loader: 
                 summary,
                 options,
                 out,
+                cancel,
             } => {
-                let result = extract(&summary, &options, &out, &done)
+                let result = extract(&summary, &options, &out, &done, &cancel)
                     .map(Box::new)
                     .map_err(|error| error.to_string());
                 if done.send(Done::Extracted { result }).is_err() {
@@ -300,6 +310,7 @@ fn extract(
     options: &ExtractOptions,
     out: &std::path::Path,
     done: &Sender<Done>,
+    cancel: &Cancel,
 ) -> crate::error::Result<Outcome> {
     let mut progress = |stage: &str, message: &str| {
         let _ = done.send(Done::Progress {
@@ -308,7 +319,7 @@ fn extract(
         });
     };
 
-    let extraction = pipeline::extract(summary, options, &mut progress)?;
+    let extraction = pipeline::extract_interruptible(summary, options, &mut progress, cancel)?;
     let destination = resolve_destination(out, summary);
     let written = pipeline::write_destination(&extraction, options, &destination)?;
 

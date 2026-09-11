@@ -17,6 +17,28 @@ use crate::error::Result;
 use crate::pipeline::ExtractOptions;
 use clap::ArgAction;
 
+/// Flags the form does not offer, and why.
+///
+/// Each of these describes the *command line* rather than what to extract: they
+/// are about stdout and stderr, and a full-screen interface writes neither
+/// (FR-004 — the TUI never puts a payload on the terminal). Offering them would
+/// be offering controls that do nothing, which is worse than not having them.
+///
+/// The test asserts this list against clap in both directions, so a new flag
+/// forces a decision and a stale entry here fails rather than silently dropping
+/// something.
+pub const CLI_ONLY: &[(&str, &str)] = &[
+    ("format", "describes stdout; the TUI writes files or panes"),
+    (
+        "progress",
+        "describes stderr; progress is drawn in the pane",
+    ),
+    (
+        "dry_run",
+        "prints a plan and exits; the pane shows it before running",
+    ),
+];
+
 /// Where the artifact goes unless the developer says otherwise.
 ///
 /// The CLI defaults `--out` to stdout, which is the right answer for a command
@@ -54,18 +76,32 @@ impl Field {
         self.value == "true"
     }
 
-    /// The value as the form draws it, with an empty text field made visible.
+    /// The value as the form draws it.
+    ///
+    /// The shape says what can be done with it: a bracketed box is a switch, and
+    /// arrows mean there are other values. A reader should not have to type at a
+    /// field to discover that it does not take typing.
     pub fn shown(&self) -> String {
         match &self.control {
             Control::Toggle => {
                 if self.is_on() {
-                    "on".to_string()
+                    "[x]".to_string()
                 } else {
-                    "off".to_string()
+                    "[ ]".to_string()
                 }
             }
+            Control::Choice(_) => format!("\u{25c0} {} \u{25b6}", self.value),
             _ if self.value.is_empty() => "(unset)".to_string(),
             _ => self.value.clone(),
+        }
+    }
+
+    /// How this field is changed, for the line under it.
+    pub fn affordance(&self) -> &'static str {
+        match self.control {
+            Control::Toggle => "space or \u{2190}/\u{2192} switches it",
+            Control::Choice(_) => "\u{2190}/\u{2192} chooses",
+            Control::Text => "type to edit, backspace to delete",
         }
     }
 }
@@ -74,7 +110,13 @@ impl Field {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Form {
     fields: Vec<Field>,
+    /// Which row is focused. `fields.len()` is the run row at the bottom, so
+    /// running is something the reader navigates to rather than a meaning hiding
+    /// behind `enter` on whichever field happened to be focused.
     focus: usize,
+    /// What just happened, when nothing did. Silence is the worst answer to a
+    /// keypress.
+    hint: Option<String>,
     /// The session this form will extract.
     reference: String,
 }
@@ -90,14 +132,35 @@ impl Form {
             // A positional is the session itself, and the form already knows it.
             .filter(|arg| arg.get_long().is_some())
             .filter(|arg| arg.get_id() != "help" && arg.get_id() != "version")
+            .filter(|arg| !CLI_ONLY.iter().any(|(id, _)| *id == arg.get_id().as_str()))
             .map(field_from)
             .collect();
 
         Self {
             fields,
             focus: 0,
+            hint: None,
             reference: reference.to_string(),
         }
+    }
+
+    /// How many rows the form has, including the action at the bottom.
+    pub fn rows(&self) -> usize {
+        self.fields.len() + 1
+    }
+
+    /// True when the run row is focused.
+    pub fn on_run_row(&self) -> bool {
+        self.focus >= self.fields.len()
+    }
+
+    /// What just happened, when nothing did.
+    pub fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
+    }
+
+    pub fn set_hint(&mut self, hint: Option<String>) {
+        self.hint = hint;
     }
 
     pub fn fields(&self) -> &[Field] {
@@ -112,30 +175,26 @@ impl Form {
         self.fields.get(self.focus)
     }
 
-    /// The first field to draw, so the focused one is always on screen.
-    ///
-    /// The form is longer than a short terminal, and a form you cannot see the
-    /// focus in is unusable.
-    pub fn scroll_for(&self, height: usize) -> usize {
-        if height == 0 || self.fields.len() <= height {
+    /// Move between fields, clamped at both ends.
+    pub fn move_focus(&mut self, delta: isize) {
+        let last = self.rows().saturating_sub(1) as isize;
+        let next = self.focus as isize + delta;
+        self.focus = next.clamp(0, last) as usize;
+        self.hint = None;
+    }
+
+    /// The first row drawn, so the focused row is always on screen.
+    pub fn scroll_for_rows(&self, height: usize) -> usize {
+        if height == 0 || self.rows() <= height {
             return 0;
         }
         let first = self.focus.saturating_sub(height / 2);
-        first.min(self.fields.len() - height)
-    }
-
-    /// Move between fields, clamped at both ends.
-    pub fn move_focus(&mut self, delta: isize) {
-        if self.fields.is_empty() {
-            return;
-        }
-        let last = self.fields.len() - 1;
-        let next = self.focus as isize + delta;
-        self.focus = next.clamp(0, last as isize) as usize;
+        first.min(self.rows() - height)
     }
 
     /// Space or enter on the focused field: flip a toggle, step a choice on.
     pub fn activate(&mut self) {
+        self.hint = None;
         match self.focused().map(|field| field.control.clone()) {
             Some(Control::Toggle) => self.step(1),
             Some(Control::Choice(_)) => self.step(1),
@@ -176,12 +235,22 @@ impl Form {
 
     /// Type into the focused field, if it takes text.
     pub fn push_char(&mut self, character: char) {
+        if self.on_run_row() {
+            self.hint =
+                Some("this row runs the extraction; tab back to a field to change it".into());
+            return;
+        }
         let Some(field) = self.fields.get(self.focus) else {
             return;
         };
         if !matches!(field.control, Control::Text) {
+            // The silent no-op that made this form feel broken. Say what the
+            // field is rather than ignoring the keystroke.
+            let (flag, affordance) = (field.flag.clone(), field.affordance());
+            self.hint = Some(format!("{flag} is not typed into: {affordance}"));
             return;
         }
+        self.hint = None;
         let id = field.id.clone();
         let mut value = field.value.clone();
         value.push(character);
@@ -196,6 +265,7 @@ impl Form {
         if !matches!(field.control, Control::Text) {
             return;
         }
+        self.hint = None;
         let id = field.id.clone();
         let mut value = field.value.clone();
         value.pop();
@@ -328,10 +398,26 @@ mod tests {
             .collect();
         from_clap.sort();
         from_form.sort();
+        // Every flag is offered except the ones about a pipe, which a
+        // full-screen interface does not have.
+        let expected: Vec<String> = from_clap
+            .iter()
+            .filter(|id| !CLI_ONLY.iter().any(|(excluded, _)| excluded == *id))
+            .cloned()
+            .collect();
         assert_eq!(
-            from_clap, from_form,
-            "the form and `sctxx extract` must expose exactly the same flags"
+            expected, from_form,
+            "the form and `sctxx extract` must expose the same flags, less the pipe-only ones"
         );
+        // And every exclusion names a real flag, so a typo cannot quietly drop
+        // something instead of failing here.
+        for (id, reason) in CLI_ONLY {
+            assert!(
+                from_clap.contains(&id.to_string()),
+                "`{id}` is excluded from the form but is not a flag"
+            );
+            assert!(!reason.is_empty(), "`{id}` is excluded without a reason");
+        }
     }
 
     #[test]
@@ -470,24 +556,21 @@ mod tests {
     fn the_focused_field_is_always_inside_the_drawn_window() {
         let mut form = form();
         let height = 10;
-        assert!(form.fields().len() > height, "the fixture must overflow");
-        for focus in [0, 1, 5, form.fields().len() - 1] {
+        assert!(form.rows() > height, "the fixture must overflow");
+        for focus in [0, 1, 5, form.rows() - 1] {
             form.move_focus(focus as isize - form.focus() as isize);
-            let first = form.scroll_for(height);
+            let first = form.scroll_for_rows(height);
             assert!(
                 form.focus() >= first && form.focus() < first + height,
                 "focus {} outside window {first}..{}",
                 form.focus(),
                 first + height
             );
-            assert!(
-                first + height <= form.fields().len(),
-                "never scroll past the end"
-            );
+            assert!(first + height <= form.rows(), "never scroll past the end");
         }
         // A window taller than the form, and a degenerate one, both start at 0.
-        assert_eq!(form.scroll_for(form.fields().len()), 0);
-        assert_eq!(form.scroll_for(0), 0);
+        assert_eq!(form.scroll_for_rows(form.rows()), 0);
+        assert_eq!(form.scroll_for_rows(0), 0);
     }
 
     #[test]
@@ -496,9 +579,11 @@ mod tests {
         form.move_focus(-10);
         assert_eq!(form.focus(), 0);
         form.move_focus(1_000);
-        assert_eq!(form.focus(), form.fields().len() - 1);
+        // The last row is the run action, not a field.
+        assert_eq!(form.focus(), form.rows() - 1);
+        assert!(form.on_run_row());
         form.move_focus(10);
-        assert_eq!(form.focus(), form.fields().len() - 1);
+        assert_eq!(form.focus(), form.rows() - 1);
     }
 
     #[test]

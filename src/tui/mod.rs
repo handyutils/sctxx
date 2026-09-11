@@ -23,7 +23,7 @@ use crate::agents::Agent;
 use crate::agents::seeding::Launch;
 use crate::cli::GlobalArgs;
 use crate::error::{Error, Result};
-use crate::pipeline::artifact;
+use crate::pipeline::{Cancel, ExtractOptions, artifact};
 use browser::Browser;
 use canvas::Canvas;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -74,14 +74,10 @@ enum Mode {
 }
 
 /// What the event loop decided to do next.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
     Continue,
     Quit,
-    /// Hand the terminal to a launched agent and take it back when it exits
-    /// (ADR 0006). Only the event loop can do this, because only it owns the
-    /// terminal.
-    HandOver(Box<Launch>),
 }
 
 /// What the pane knows about the selected session's ledgers.
@@ -108,6 +104,9 @@ enum RunState {
     },
     /// Finished, with what was written.
     Done(Box<work::Outcome>),
+    /// Stopped because the developer asked it to stop. Not a failure, and not
+    /// silence either.
+    Cancelled,
     /// Failed, with the reason. The form is left untouched so it can be fixed.
     Failed(String),
 }
@@ -126,8 +125,14 @@ impl RunState {
 enum HandoffState {
     /// Picking an agent from the ones that are installed.
     Choosing,
-    /// Showing exactly what will run, waiting for a yes.
-    Confirming(Box<Launch>),
+    /// Showing exactly what will happen — where the context will be written and
+    /// which agent will start — and waiting for a yes.
+    Confirming {
+        agent: usize,
+        /// The directory the artifact goes to, absolute, because "`.sctxx/`" is
+        /// not an answer to "where did that go?".
+        destination: PathBuf,
+    },
 }
 
 /// The whole of the TUI's state.
@@ -154,6 +159,16 @@ struct App {
     /// The agents on this machine, once they have been looked for. `None` means
     /// nobody has asked yet, which is why the pane can say so.
     agents: Option<Vec<Agent>>,
+    /// The session being handed on, taken when the handoff opens so that moving
+    /// the cursor afterwards cannot change what is being extracted.
+    handoff_session: Option<SessionSummary>,
+    /// The agent to launch once the extraction finishes, if the handoff started
+    /// the extraction itself.
+    pending_launch: Option<usize>,
+    /// A launch the event loop should perform. Set when the confirmation is
+    /// given and the artifact is already there, or when the extraction the
+    /// handoff started finishes.
+    pending_handover: Option<Box<Launch>>,
     /// What the extraction pane is showing.
     run: RunState,
     worker: Worker,
@@ -162,8 +177,14 @@ struct App {
     /// A field rather than the constant so a test removes the wait instead of
     /// sleeping through it.
     settle_after: Duration,
-    /// The flags this invocation was given, for the form to convert against.
+    /// The flags this invocation were given, for the form to convert against.
     global: GlobalArgs,
+    /// The flag the running extraction watches.
+    cancel: Cancel,
+    /// What `--llm auto` resolves to on this machine, so the form can show the
+    /// consequence of leaving it alone instead of letting the developer find out
+    /// by waiting.
+    resolved_llm: Option<String>,
 }
 
 impl App {
@@ -185,11 +206,16 @@ impl App {
             handoff_cursor: 0,
             handoff_note: None,
             agents: None,
+            handoff_session: None,
+            pending_launch: None,
+            pending_handover: None,
             run: RunState::Idle,
             worker: Worker::spawn(),
             settle: None,
             settle_after: SETTLE,
             global,
+            cancel: Cancel::new(),
+            resolved_llm: crate::llm::resolve_auto().map(|selection| selection.to_string()),
         }
     }
 
@@ -239,7 +265,17 @@ impl App {
                 }
                 work::Done::Extracted { result } => {
                     self.run = match result {
+                        // A stop the developer asked for is not an error, and
+                        // saying "failed" would be a lie about their own action.
+                        Err(_) if self.cancel.cancelled() => RunState::Cancelled,
                         Ok(outcome) => {
+                            // A handoff extracts in order to launch, so it does
+                            // not stop to show the artifact on the way.
+                            if let Some(agent) = self.pending_launch.take() {
+                                self.run = RunState::Done(outcome);
+                                self.launch_now(agent);
+                                return;
+                            }
                             // FR-016: the artifact opens itself, at L0, without
                             // another keypress. A developer who has to go and
                             // find it will not read it.
@@ -427,10 +463,14 @@ impl App {
 
     /// Open the handoff, once an extraction has produced something to hand on.
     fn open_handoff(&mut self) {
-        if !matches!(self.run, RunState::Done(_)) {
-            // Nothing extracted yet, so there is no artifact to hand over.
+        let Some(session) = self.browser.selected().cloned() else {
             return;
-        }
+        };
+        // No extraction required first. The whole point of the feature is that
+        // "hand this session to another agent" is one action, not a pipeline the
+        // developer has to drive.
+        self.handoff_session = Some(session);
+        self.pending_launch = None;
         self.handoff = Some(HandoffState::Choosing);
         self.handoff_cursor = 0;
         self.handoff_note = None;
@@ -442,33 +482,112 @@ impl App {
         }
     }
 
-    /// Build the launch for the agent under the cursor.
+    /// Where the artifact for the handoff session goes, as an absolute path.
     ///
-    /// Everything that can be wrong — no artifact, no binary, an unreadable
-    /// handoff — is reported here, before the terminal is handed over.
-    fn build_launch(&self, cursor: usize) -> Result<Launch> {
+    /// Relative to the project the session was about, because that is what
+    /// `.sctxx/` means to someone handing work on — and shown absolute, because
+    /// a relative path does not answer "where did that go?".
+    fn handoff_destination(&self) -> PathBuf {
+        let relative = PathBuf::from(".sctxx");
+        if let Some(cwd) = self
+            .handoff_session
+            .as_ref()
+            .and_then(|session| session.cwd.as_deref())
+        {
+            let base = Path::new(cwd);
+            if base.is_dir() {
+                return base.join(relative);
+            }
+        }
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&relative))
+            .unwrap_or(relative)
+    }
+
+    /// The agent under the cursor, when it can actually be launched.
+    fn handoff_agent(&self, cursor: usize) -> Result<&Agent> {
         let agents = self.agents.as_ref().ok_or_else(|| {
             Error::Usage("still looking for the agents installed here".to_string())
         })?;
         let agent = agents
             .get(cursor)
             .ok_or_else(|| Error::Usage("no agent is selected".to_string()))?;
-        let artifact = match &self.run {
-            RunState::Done(outcome) => outcome.handoff.clone(),
-            _ => {
-                return Err(Error::Usage(
-                    "extract a session before handing it on".to_string(),
-                ));
-            }
-        };
-        let cwd = self
-            .browser
-            .selected()
-            .and_then(|session| session.cwd.clone());
-        Launch::interactive(agent, &artifact, cwd.as_deref().map(std::path::Path::new))
+        if !agent.installed() {
+            return Err(Error::Usage(format!(
+                "{} is not installed (no `{}` on PATH)",
+                agent.label, agent.id
+            )));
+        }
+        Ok(agent)
     }
 
-    /// Choose an agent, then confirm the command. Two steps, never one.
+    /// The options the handoff uses.
+    ///
+    /// Deterministic on purpose. "Move this session to another agent" is not a
+    /// request to spend eight hundred thousand tokens: the deterministic
+    /// artifact already carries every `[evt a-b]` pointer, every ledger, and the
+    /// recency tail, which is what a receiving agent needs. A richer artifact is
+    /// available through `e`, deliberately and visibly.
+    fn deterministic_options(&self, reference: &str) -> Result<ExtractOptions> {
+        crate::cli::extract::ExtractArgs::parse_argv(["sctxx", "--llm", "none", reference])?
+            .options(&self.global)
+    }
+
+    /// The developer said yes: make sure the context is on disk, then launch.
+    ///
+    /// If the artifact is already there *and belongs to this session*, it is
+    /// reused rather than rewritten — a handoff of something already extracted
+    /// should not re-do the work.
+    fn confirm_handoff(&mut self, agent: usize, destination: PathBuf) {
+        let Some(session) = self.handoff_session.clone() else {
+            return;
+        };
+        let artifact = destination.join("handoff.md");
+        let current = artifact::source_reference(&artifact);
+        if current.as_deref() == Some(session.reference().as_str()) {
+            self.launch_now(agent);
+            return;
+        }
+
+        let options = match self.deterministic_options(&session.reference()) {
+            Ok(options) => options,
+            Err(error) => {
+                self.handoff_note = Some(error.to_string());
+                return;
+            }
+        };
+        self.pending_launch = Some(agent);
+        self.cancel = Cancel::new();
+        self.run = RunState::Running {
+            stage: "extract".into(),
+            message: format!("writing {}", artifact.display()),
+            lines: Vec::new(),
+        };
+        self.worker
+            .extract(&session, options, destination, self.cancel.clone());
+    }
+
+    /// Build the launch and ask the event loop to hand the terminal over.
+    fn launch_now(&mut self, agent: usize) {
+        let Some(session) = self.handoff_session.clone() else {
+            return;
+        };
+        let artifact = self.handoff_destination().join("handoff.md");
+        let Some(target) = self.agents.as_ref().and_then(|agents| agents.get(agent)) else {
+            return;
+        };
+        match Launch::interactive(target, &artifact, session.cwd.as_deref().map(Path::new)) {
+            Ok(launch) => self.pending_handover = Some(Box::new(launch)),
+            Err(error) => self.handoff_note = Some(error.to_string()),
+        }
+    }
+
+    /// Take the launch the event loop should perform, if there is one.
+    fn take_pending_handover(&mut self) -> Option<Box<Launch>> {
+        self.pending_handover.take()
+    }
+
+    /// Choose an agent, then confirm what will happen. Two steps, never one.
     fn handle_handoff(&mut self, key: KeyEvent) -> Step {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Step::Quit;
@@ -478,37 +597,34 @@ impl App {
             Some(HandoffState::Choosing) => match key.code {
                 KeyCode::Esc | KeyCode::Char('q') => {
                     self.handoff = None;
+                    self.handoff_session = None;
                     self.mode = Mode::Browse;
                 }
-                // `count` is zero while detection is still in flight, and
-                // there is nothing to move onto yet.
                 KeyCode::Char('j') | KeyCode::Down if count > 0 => {
                     self.handoff_cursor = (self.handoff_cursor + 1).min(count - 1);
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     self.handoff_cursor = self.handoff_cursor.saturating_sub(1);
                 }
-                KeyCode::Enter => match self.build_launch(self.handoff_cursor) {
-                    Ok(launch) => {
+                KeyCode::Enter => match self.handoff_agent(self.handoff_cursor) {
+                    Ok(_) => {
                         self.handoff_note = None;
-                        self.handoff = Some(HandoffState::Confirming(Box::new(launch)));
+                        let destination = self.handoff_destination();
+                        self.handoff = Some(HandoffState::Confirming {
+                            agent: self.handoff_cursor,
+                            destination,
+                        });
                     }
-                    Err(error) => {
-                        // The reason is shown where the choice was, so the
-                        // developer can pick a different agent or go and extract.
-                        self.handoff_note = Some(error.to_string());
-                    }
+                    Err(error) => self.handoff_note = Some(error.to_string()),
                 },
                 _ => {}
             },
-            Some(HandoffState::Confirming(launch)) => match key.code {
+            Some(HandoffState::Confirming { agent, destination }) => match key.code {
                 KeyCode::Esc => self.handoff = Some(HandoffState::Choosing),
-                KeyCode::Enter | KeyCode::Char('y') => return Step::HandOver(launch),
+                KeyCode::Enter | KeyCode::Char('y') => self.confirm_handoff(agent, destination),
                 _ => {}
             },
-            None => {
-                self.mode = Mode::Browse;
-            }
+            None => self.mode = Mode::Browse,
         }
         Step::Continue
     }
@@ -540,8 +656,17 @@ impl App {
     /// reported instantly instead of after a round trip.
     fn start_run(&mut self) {
         if self.run.running() {
+            // Say so rather than ignoring the key, and point at the way out.
+            if let Some(form) = self.form.as_mut() {
+                form.set_hint(Some(
+                    "already running \u{2014} enter on the last row stops it".to_string(),
+                ));
+            }
             return;
         }
+        // A fresh flag per run, so a previous cancellation does not poison this
+        // one.
+        self.cancel = Cancel::new();
         let (Some(form), Some(session)) = (self.form.as_ref(), self.browser.selected().cloned())
         else {
             return;
@@ -565,8 +690,20 @@ impl App {
             message: String::new(),
             lines: Vec::new(),
         };
-        self.worker
-            .extract(&session, options, PathBuf::from(destination));
+        self.worker.extract(
+            &session,
+            options,
+            PathBuf::from(destination),
+            self.cancel.clone(),
+        );
+    }
+
+    /// Ask the running extraction to stop at its next chunk boundary.
+    fn cancel_run(&mut self) {
+        self.cancel.cancel();
+        if let RunState::Running { message, .. } = &mut self.run {
+            *message = "stopping at the next step\u{2026}".to_string();
+        }
     }
 
     fn handle(&mut self, key: KeyEvent) -> Step {
@@ -619,7 +756,20 @@ impl App {
                 return Step::Continue;
             }
             KeyCode::Enter => {
-                self.start_run();
+                // `enter` commits the field it is on and moves on. Running is
+                // the row at the bottom, because a key that sometimes means
+                // "edit" and sometimes means "spend money and time" is a trap.
+                let on_run_row = self.form.as_ref().is_some_and(Form::on_run_row);
+                if on_run_row {
+                    if self.run.running() {
+                        self.cancel_run();
+                    } else {
+                        self.start_run();
+                    }
+                } else if let Some(form) = self.form.as_mut() {
+                    form.activate();
+                    form.move_focus(1);
+                }
                 return Step::Continue;
             }
             _ => {}
@@ -689,6 +839,9 @@ pub fn run(global: &GlobalArgs) -> Result<i32> {
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
         app.pump();
+        // A handoff extracts before it launches, so the request to hand over
+        // arrives from the worker's answer rather than from a keypress.
+        hand_over_if_asked(terminal, app)?;
         // The canvas needs to know what a page is, and only the terminal does.
         app.body_height = terminal
             .size()
@@ -714,23 +867,31 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
         if key.kind != KeyEventKind::Press {
             continue;
         }
-        match app.handle(key) {
-            Step::Quit => return Ok(()),
-            Step::HandOver(launch) => {
-                // A coding agent is a full-screen application, so it gets the
-                // whole terminal rather than a pane inside this one (ADR 0006).
-                ratatui::restore();
-                let outcome = launch.run();
-                // Re-initialise rather than assume the terminal survived an
-                // application that took it over.
-                *terminal = ratatui::try_init().map_err(|error| {
-                    Error::Other(format!("could not restart the terminal interface: {error}"))
-                })?;
-                app.launched(&launch, outcome);
-            }
-            Step::Continue => {}
+        if app.handle(key) == Step::Quit {
+            return Ok(());
         }
+        hand_over_if_asked(terminal, app)?;
     }
+}
+
+/// Hand the terminal over, when the app has a launch ready.
+///
+/// A coding agent is a full-screen application, so it gets the whole terminal
+/// rather than a pane inside this one (ADR 0006). Only the event loop can do
+/// this, because only it owns the terminal.
+fn hand_over_if_asked(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
+    let Some(launch) = app.take_pending_handover() else {
+        return Ok(());
+    };
+    ratatui::restore();
+    let outcome = launch.run();
+    // Re-initialise rather than assume the terminal survived an application that
+    // took it over.
+    *terminal = ratatui::try_init().map_err(|error| {
+        Error::Other(format!("could not restart the terminal interface: {error}"))
+    })?;
+    app.launched(&launch, outcome);
+    Ok(())
 }
 
 fn handle_browse(key: KeyEvent, browser: &mut Browser, mode: &mut Mode) -> Step {
@@ -1115,70 +1276,139 @@ mod tests {
         }
     }
 
-    /// An app that has already extracted, with the handoff file really on disk —
-    /// because the launch checks it before anything else happens.
-    fn extraction_app() -> (tempfile::TempDir, App) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let handoff = dir.path().join("handoff.md");
-        std::fs::write(&handoff, "# handoff\n\n[evt 1-2] something\n").expect("write");
+    /// An app with a session that has a real project directory, so the handoff
+    /// has somewhere to write.
+    fn handoff_app() -> (tempfile::TempDir, App) {
+        let project = tempfile::tempdir().expect("tempdir");
+        let mut session = summary("aaa");
+        session.cwd = Some(project.path().to_string_lossy().into_owned());
 
-        let mut app = app();
-        app.run = RunState::Done(Box::new(crate::tui::work::Outcome {
-            reference: "claude:aaa".into(),
-            handoff: handoff.clone(),
-            paths: vec![handoff],
-            warnings: Vec::new(),
-            git_warning: None,
-            live_events: 1,
-            total_events: 2,
-        }));
+        let mut app = App::new(vec![session], 100, None, GlobalArgs::default());
         app.agents = Some(vec![
             agent_fixture("claude", true, Some("2.1.268"), "2.1.268"),
             agent_fixture("codex", false, None, "0.153.4"),
         ]);
-        (dir, app)
+        (project, app)
+    }
+
+    /// Write an artifact that claims to come from `session_id`.
+    fn write_artifact(destination: &Path, session_id: &str) {
+        std::fs::create_dir_all(destination).expect("create destination");
+        std::fs::write(
+            destination.join("handoff.md"),
+            format!(
+                "source: {{agent: claude, session: {session_id}}}\n\n## L0 \u{b7} Brief\n\nthe goal [evt 41]\n"
+            ),
+        )
+        .expect("write artifact");
     }
 
     #[test]
-    fn h_does_nothing_until_something_has_been_extracted() {
-        // There is no handoff to make yet, and inventing one would be worse
-        // than doing nothing.
-        let mut app = app();
-        app.handle(key(KeyCode::Char('h')));
-        assert!(app.handoff.is_none());
-        assert_eq!(app.mode, Mode::Browse);
-    }
-
-    #[test]
-    fn the_handoff_is_two_steps_and_the_first_one_runs_nothing() {
-        let (_dir, mut app) = extraction_app();
+    fn h_opens_the_handoff_straight_from_a_session() {
+        // The main line: pick a session, say which agent continues it, go. No
+        // extraction first, no flag form, no model.
+        let (_project, mut app) = handoff_app();
         app.handle(key(KeyCode::Char('h')));
         assert_eq!(app.mode, Mode::Handoff);
         assert!(matches!(app.handoff, Some(HandoffState::Choosing)));
+        assert!(
+            app.handoff_session.is_some(),
+            "the session is taken when the handoff opens, so moving the cursor cannot change it"
+        );
+    }
 
-        // Choosing builds the command and shows it; it does not launch.
-        assert_eq!(app.handle(key(KeyCode::Enter)), Step::Continue);
+    #[test]
+    fn the_confirmation_says_which_agent_and_exactly_where() {
+        let (project, mut app) = handoff_app();
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Enter));
+
         match &app.handoff {
-            Some(HandoffState::Confirming(launch)) => {
-                assert_eq!(launch.agent, "claude");
-                assert!(launch.display.contains("--append-system-prompt-file"));
-                assert!(launch.display.contains("handoff.md"));
+            Some(HandoffState::Confirming { agent, destination }) => {
+                assert_eq!(*agent, 0);
+                assert!(
+                    destination.is_absolute(),
+                    "a relative path answers nothing: {destination:?}"
+                );
+                assert_eq!(destination, &project.path().join(".sctxx"));
             }
             other => panic!("expected a confirmation, got {other:?}"),
         }
+    }
 
-        // Only the second step hands over the terminal.
-        assert!(matches!(app.handle(key(KeyCode::Enter)), Step::HandOver(_)));
+    #[test]
+    fn confirming_extracts_deterministically_and_then_launches() {
+        let (project, mut app) = handoff_app();
+        assert!(
+            !project.path().join(".sctxx/handoff.md").exists(),
+            "nothing has been extracted yet"
+        );
+
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Enter)); // choose claude
+        app.handle(key(KeyCode::Enter)); // confirm
+
+        assert!(
+            matches!(app.run, RunState::Running { .. }),
+            "step one is the extraction: {:?}",
+            app.run
+        );
+        assert_eq!(app.pending_launch, Some(0), "step two is the launch");
+
+        // And it spends nothing: the deterministic artifact is what a handoff
+        // needs, and 800k tokens through a model is not what "hand this on"
+        // means.
+        let options = app.deterministic_options("claude:aaa").expect("options");
+        assert!(
+            matches!(options.llm, crate::llm::Selection::None),
+            "the handoff must not call a model"
+        );
+    }
+
+    #[test]
+    fn an_artifact_that_already_belongs_to_this_session_is_reused() {
+        let (project, mut app) = handoff_app();
+        write_artifact(&project.path().join(".sctxx"), "aaa");
+
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Enter));
+        app.handle(key(KeyCode::Enter));
+
+        assert!(
+            !matches!(app.run, RunState::Running { .. }),
+            "an extraction that is already done is not redone"
+        );
+        assert!(
+            app.pending_handover.is_some(),
+            "it goes straight to the launch"
+        );
+    }
+
+    #[test]
+    fn an_artifact_belonging_to_another_session_is_not_reused() {
+        let (project, mut app) = handoff_app();
+        write_artifact(&project.path().join(".sctxx"), "someone-elses-session");
+
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Enter));
+        app.handle(key(KeyCode::Enter));
+
+        assert!(
+            matches!(app.run, RunState::Running { .. }),
+            "another session's artifact is not this session's context"
+        );
+        assert_eq!(app.pending_launch, Some(0));
     }
 
     #[test]
     fn esc_backs_out_of_the_confirmation_without_running_anything() {
-        let (_dir, mut app) = extraction_app();
+        let (_project, mut app) = handoff_app();
         app.handle(key(KeyCode::Char('h')));
         app.handle(key(KeyCode::Enter));
-        assert_eq!(app.handle(key(KeyCode::Esc)), Step::Continue);
+        app.handle(key(KeyCode::Esc));
         assert!(matches!(app.handoff, Some(HandoffState::Choosing)));
-        // And esc again leaves the handoff entirely.
+        assert!(!matches!(app.run, RunState::Running { .. }));
+
         app.handle(key(KeyCode::Esc));
         assert!(app.handoff.is_none());
         assert_eq!(app.mode, Mode::Browse);
@@ -1186,7 +1416,7 @@ mod tests {
 
     #[test]
     fn choosing_an_agent_that_is_not_installed_explains_rather_than_launching() {
-        let (_dir, mut app) = extraction_app();
+        let (_project, mut app) = handoff_app();
         app.handle(key(KeyCode::Char('h')));
         app.handle(key(KeyCode::Char('j')));
         assert_eq!(app.handoff_cursor, 1);
@@ -1200,32 +1430,24 @@ mod tests {
     }
 
     #[test]
-    fn a_handoff_that_vanished_is_caught_before_the_terminal_is_handed_over() {
-        let (dir, mut app) = extraction_app();
-        std::fs::remove_file(dir.path().join("handoff.md")).expect("remove the artifact");
-        app.handle(key(KeyCode::Char('h')));
-        app.handle(key(KeyCode::Enter));
-        let note = app.handoff_note.clone().expect("a reason");
-        assert!(note.contains("not readable"), "{note}");
-        assert!(matches!(app.handoff, Some(HandoffState::Choosing)));
-    }
-
-    #[test]
     fn the_cursor_is_clamped_to_the_agents_that_were_found() {
-        let (_dir, mut app) = extraction_app();
+        let (_project, mut app) = handoff_app();
         app.handle(key(KeyCode::Char('h')));
         app.handle(key(KeyCode::Char('k')));
         assert_eq!(app.handoff_cursor, 0);
-        app.handle(key(KeyCode::Char('j')));
-        app.handle(key(KeyCode::Char('j')));
-        app.handle(key(KeyCode::Char('j')));
+        for _ in 0..5 {
+            app.handle(key(KeyCode::Char('j')));
+        }
         assert_eq!(app.handoff_cursor, 1, "two agents, so one is the last");
     }
 
     #[test]
     fn coming_back_from_an_agent_reports_what_it_did() {
-        let (_dir, mut app) = extraction_app();
-        let launch = app.build_launch(0).expect("a launch for claude");
+        let (project, mut app) = handoff_app();
+        write_artifact(&project.path().join(".sctxx"), "aaa");
+        app.handoff_session = Some(app.browser.selected().cloned().expect("session"));
+        app.launch_now(0);
+        let launch = app.take_pending_handover().expect("a launch");
 
         app.launched(&launch, Ok(0));
         assert!(
@@ -1251,157 +1473,6 @@ mod tests {
                 .unwrap_or_default()
                 .contains("boom")
         );
-    }
-
-    /// An app with an artifact already on disk and open.
-    fn canvas_app() -> (tempfile::TempDir, App) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("handoff.md"),
-            "# Handoff\n\nsource: {agent: claude, session: aaa}\n\n## L0 · Brief\n\nthe goal [evt 41]\n\n## L1 · Items\n\n- a file [evt 12–14]\n",
-        )
-        .expect("write");
-        let mut app = app();
-        app.canvas = Some(Canvas::load(&dir.path().join("handoff.md")).expect("load"));
-        app.mode = Mode::Canvas;
-        app.body_height = 24;
-        (dir, app)
-    }
-
-    #[test]
-    fn c_opens_an_artifact_left_by_an_earlier_run() {
-        // FR-016a: the pane is a viewer, not only a receipt.
-        let project = tempfile::tempdir().expect("tempdir");
-        let artifacts = project.path().join(".sctxx");
-        std::fs::create_dir_all(&artifacts).expect("mkdir");
-        std::fs::write(
-            artifacts.join("handoff.md"),
-            "source: {agent: claude, session: aaa}\n\n## L0 · Brief\n\nfrom an earlier run\n",
-        )
-        .expect("write");
-
-        let mut session = summary("aaa");
-        session.cwd = Some(project.path().to_string_lossy().into_owned());
-        let mut app = App::new(vec![session], 100, None, GlobalArgs::default());
-
-        app.handle(key(KeyCode::Char('c')));
-        assert_eq!(app.mode, Mode::Canvas);
-        assert!(app.canvas.is_some(), "the earlier artifact opens");
-    }
-
-    #[test]
-    fn c_does_nothing_when_there_is_no_artifact_to_read() {
-        let mut app = app();
-        app.handle(key(KeyCode::Char('c')));
-        assert_eq!(
-            app.mode,
-            Mode::Browse,
-            "nothing to show, so nothing happens"
-        );
-        assert!(app.canvas.is_none());
-    }
-
-    #[test]
-    fn the_canvas_switches_layers_and_scrolls() {
-        let (_dir, mut app) = canvas_app();
-        assert_eq!(app.canvas.as_ref().map(Canvas::current), Some(0));
-        app.handle(key(KeyCode::Char('2')));
-        assert_eq!(app.canvas.as_ref().map(Canvas::current), Some(1));
-        app.handle(key(KeyCode::Tab));
-        assert_eq!(
-            app.canvas.as_ref().map(Canvas::current),
-            Some(1),
-            "only two layers"
-        );
-        app.handle(key(KeyCode::Char('1')));
-        assert_eq!(app.canvas.as_ref().map(Canvas::current), Some(0));
-        // Scrolling is clamped, and `esc` leaves the canvas.
-        app.handle(key(KeyCode::Char('G')));
-        app.handle(key(KeyCode::Char('g')));
-        app.handle(key(KeyCode::Esc));
-        assert_eq!(app.mode, Mode::Browse);
-    }
-
-    #[test]
-    fn following_a_pointer_asks_the_worker_and_esc_closes_it() {
-        let (_dir, mut app) = canvas_app();
-        // The first line of L0 is blank, so step onto the goal line, which has a
-        // pointer on it.
-        app.handle(key(KeyCode::Char('j')));
-        let pointer = app.canvas.as_ref().and_then(Canvas::pointer_under_cursor);
-        assert_eq!(pointer, Some((41, 41)), "the goal line names evt 41");
-
-        app.handle(key(KeyCode::Enter));
-        assert!(
-            matches!(
-                app.canvas.as_ref().and_then(Canvas::expansion),
-                Some(crate::tui::canvas::Expansion::Pending { .. })
-            ),
-            "the range is asked for, not read on the UI thread"
-        );
-
-        // `esc` closes the range first, and only then the canvas.
-        app.handle(key(KeyCode::Esc));
-        assert!(app.canvas.as_ref().and_then(Canvas::expansion).is_none());
-        assert_eq!(app.mode, Mode::Canvas, "the canvas is still open");
-        app.handle(key(KeyCode::Esc));
-        assert_eq!(app.mode, Mode::Browse);
-    }
-
-    #[test]
-    fn an_artifact_that_names_no_session_says_so_instead_of_asking() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("handoff.md"),
-            "## L0 · Brief\n\nthe goal [evt 41]\n",
-        )
-        .expect("write");
-        let mut app = app();
-        app.canvas = Some(Canvas::load(&dir.path().join("handoff.md")).expect("load"));
-        app.mode = Mode::Canvas;
-
-        app.handle(key(KeyCode::Char('j')));
-        app.handle(key(KeyCode::Enter));
-        let shown = app
-            .canvas
-            .as_ref()
-            .map(|canvas| canvas.window(10).join("\n"))
-            .unwrap_or_default();
-        assert!(shown.contains("does not name the session"), "{shown}");
-    }
-
-    #[test]
-    fn a_path_can_be_typed_to_open_an_artifact() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("colleague.md");
-        std::fs::write(&path, "## L0 · Brief\n\ntheir goal\n").expect("write");
-
-        let mut app = app();
-        app.handle(key(KeyCode::Char('o')));
-        assert_eq!(app.mode, Mode::OpenArtifact);
-        for character in path.to_string_lossy().chars() {
-            app.handle(key(KeyCode::Char(character)));
-        }
-        app.handle(key(KeyCode::Enter));
-        assert_eq!(app.mode, Mode::Canvas);
-        assert!(app.canvas.is_some(), "a colleague's artifact opens by path");
-    }
-
-    #[test]
-    fn a_path_that_is_not_an_artifact_reports_rather_than_opening_nothing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("shopping-list.md");
-        std::fs::write(&path, "milk\n").expect("write");
-
-        let mut app = app();
-        app.handle(key(KeyCode::Char('o')));
-        for character in path.to_string_lossy().chars() {
-            app.handle(key(KeyCode::Char(character)));
-        }
-        app.handle(key(KeyCode::Enter));
-        assert_eq!(app.mode, Mode::OpenArtifact, "still typing, not opened");
-        let note = app.handoff_note.clone().expect("a reason");
-        assert!(note.contains("no L0 layer"), "{note}");
     }
 
     #[test]

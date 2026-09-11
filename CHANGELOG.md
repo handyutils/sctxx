@@ -7,6 +7,18 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+### Changed
+
+- **`h` in the TUI is now the whole feature, and it no longer costs tokens.** It used to require
+  extracting first, through a form of nineteen flags whose default (`--llm auto` → `cli:claude`) pushed
+  the session's masked rows through a model: for a 103k-event session that is **41 fold calls plus 40
+  premap calls — about 813,000 input tokens**. Nothing said so, and there was no way to stop it.
+  Now `h` works straight from the session list. It extracts **deterministically** (`--llm none` — no
+  model, no tokens, seconds), writes to a directory it names in full before doing anything, and starts
+  the chosen agent with the handoff already loaded. The confirmation shows what will happen, where,
+  and the exact command — and an extraction already on disk for that session is reused rather than
+  redone. `e` remains for anyone who wants the flags, and the fold is an explicit choice there.
+
 ### Added
 
 - **The artifact now opens itself in `sctxx --tui`.** When an extraction finishes, the pane switches to
