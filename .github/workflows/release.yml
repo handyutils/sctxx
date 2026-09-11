@@ -112,7 +112,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Publish, unless this version is already there
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # Re-running a release must not fail on work that already succeeded.
+          # crates.io cannot reuse a version, so the check is the version's
+          # existence, not the exit code of the upload.
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -A "sctxx-release-workflow" \
+            "https://crates.io/api/v1/crates/sctxx/$version")
+          if [ "$code" = "200" ]; then
+            echo "sctxx $version is already published on crates.io; nothing to do."
+          else
+            cargo publish --token "$CARGO_REGISTRY_TOKEN"
+          fi
 
   npm:
     name: npm
@@ -152,6 +167,10 @@ jobs:
           for target in $(node -p "Object.keys(require('./npm/platforms.json')).join('\n')"); do
             pkg=$(node -p "require('./npm/platforms.json')['$target'].package")
             bin=$(node -p "require('./npm/platforms.json')['$target'].binary")
+            if npm view "$pkg@$version" version >/dev/null 2>&1; then
+              echo "$pkg@$version is already published; skipping."
+              continue
+            fi
             rm -rf "/tmp/$target" && mkdir -p "/tmp/$target"
             tar -xzf "dist/sctxx-$target.tar.gz" -C /tmp
             mkdir -p "npm/$pkg/bin"
@@ -171,6 +190,10 @@ jobs:
         run: |
           set -euo pipefail
           version=$(node -p "require('./npm/sctxx/package.json').version")
+          if npm view "sctxx@$version" version >/dev/null 2>&1; then
+            echo "sctxx@$version is already published; nothing to do."
+            exit 0
+          fi
           cp LICENSE NOTICE npm/sctxx/
           cd npm/sctxx
           npm pkg set version="$version"
