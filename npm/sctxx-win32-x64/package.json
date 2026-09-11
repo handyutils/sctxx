@@ -1,6 +1,6 @@
 {
   "name": "sctxx-win32-x64",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The sctxx binary for Windows on x64. Install `sctxx` instead of this package.",
   "license": "Apache-2.0",
   "homepage": "https://handyutils.github.io/sctxx",

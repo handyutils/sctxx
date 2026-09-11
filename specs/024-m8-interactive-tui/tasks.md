@@ -364,6 +364,14 @@ engineering asks, which are about the artifact rather than about provenance.
     large stale/contradicted count is stated in L0; each provider compaction summary is surfaced in L0
     as a **low-trust** seed with its event pointer, and corroborated against deterministic evidence
 
+- [ ] **T2426** [FR-009] Key Technical Concepts and Critical Context in L0
+  - Why: a survey of DeepSeek Harness's checkpoint schema (ticket 16) names two headings sctxx's L0 does
+    not have, and both are things a receiving agent needs: the concepts the work is framed in, and the
+    context that is easy to lose (paths, commands, identifiers, user corrections)
+  - Depends on: T2425
+  - Acceptance: L0 carries both, sourced from the fold when it ran and from the ledgers when it did not,
+    inside the ~1,000-token L0 budget
+
 ## Out of scope for this block
 
 - **T2415 (an embedded terminal pane) — superseded by ADR 0006.** The launched agent is itself a

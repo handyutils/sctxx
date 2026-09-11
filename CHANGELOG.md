@@ -7,6 +7,10 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-09-11
+
 ### Added
 
 - **L0 now reconciles the end state against the evidence, deterministically** (`pipeline::finalize`,
@@ -291,7 +295,8 @@ Tracked in `docs/SCTXX-ROADMAP.md`: the probe loop and `sctxx eval` (M5); cache,
 incremental updates; host mode and an MCP server (M6). `--mode full` currently behaves as
 `standard` and says so.
 
-[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/handyutils/sctxx/releases/tag/v0.3.0
 [0.2.0]: https://github.com/handyutils/sctxx/releases/tag/v0.2.0
 [0.1.3]: https://github.com/handyutils/sctxx/releases/tag/v0.1.3
 [0.1.2]: https://github.com/handyutils/sctxx/releases/tag/v0.1.2
