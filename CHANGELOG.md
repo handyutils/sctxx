@@ -9,6 +9,16 @@ bump and a compatibility note.
 
 ### Added
 
+- **The artifact now opens itself in `sctxx --tui`.** When an extraction finishes, the pane switches to
+  the artifact at L0 without another keypress, and `c` returns to it. Layers L0–L3 step by number or
+  tab, and the whole thing scrolls — the point being that a developer who has to leave the TUI to read
+  what they just produced will not read it.
+  The `[evt a–b]` pointers in the artifact are live: put the cursor on one and press enter, and the
+  events behind it are read through **the same code `sctxx expand` uses**, not a second implementation
+  of it. Reading takes the whole body, because prose in half a terminal is not reading.
+  `o` opens an artifact you already have — a previous run's `.sctxx/`, or a colleague's `handoff.md` —
+  by path, so the pane is a viewer and not only a receipt.
+
 - **`h` in `sctxx --tui` hands the work to another agent.** It lists the agents installed on this
   machine with the version each reported and whether the seeding channel was verified on it, shows the
   exact command that will run, and — only on a second, explicit confirmation — hands the terminal over

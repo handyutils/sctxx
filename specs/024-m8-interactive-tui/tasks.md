@@ -152,17 +152,6 @@ task says which library function is being wrapped, not reimplemented.
 
 ## Open
 
-- [ ] **T2403** [FR-003] The pane rail: SCTXX first, switch by key and by click, `?` keymap
-  - Why: every later pane task needs a place to live; the rail is the block's frame and is currently
-    missing, which is why the TUI shows one pane and no navigation
-  - Depends on: T2401
-  - Touches: `src/tui/{mod,ui}.rs`, `src/tui/panes.rs` (new)
-  - RED/GREEN proof: `cargo test --all-features --lib panes`
-  - Acceptance: five rail entries in the spec's order, SCTXX selected on start, key and click both
-    switch, `q` quits from any pane, `?` overlays the keymap; an unavailable pane says why rather than
-    disappearing
-  - Reference: `spec.md` "The screen" table. No croft code (FR-026)
-
 - [ ] **T2404** [FR-008, SC-002] Progressive discovery: paint before the list is complete
   - Why: **measured, not assumed.** A warm `list_all` over the 643 real sessions on this machine takes
     **0.75 s**, against SC-002's <300 ms first paint, and it runs to completion before the terminal is
@@ -207,16 +196,38 @@ task says which library function is being wrapped, not reimplemented.
   - Acceptance: a running extraction can be stopped from the pane; no partial artifact is left behind;
     the process stays clean; the existing progress tests keep passing
 
-- [ ] **T2410** [FR-016, FR-016a, FR-023] Canvas pane: read the artifact in place, L0–L3, `expand`
+- [x] **T2410** [FR-016, FR-016a, FR-023] Canvas: read the artifact in place, L0–L3, `expand`
   - Why: FR-016's premise is that a developer who has to leave the TUI to read the artifact will not
-    read it — so the artifact must open itself the moment extraction succeeds
+    read it — so the artifact must open itself, and the pane must be a viewer rather than a receipt
   - Depends on: T2409
-  - Touches: `src/tui/canvas.rs` (new), reusing the layer renderer and `expand`'s pointer resolution
-  - RED/GREEN proof: `cargo test --all-features --lib the_artifact_is_readable_at_l0`
-  - Acceptance: on success the pane opens at L0 with no further keypress; L0–L3 step; `[evt a–b]`
-    pointers resolve through the same `expand` path the CLI uses and never re-implement it; ledgers are
-    visible alongside; an existing artifact on disk opens by path (FR-016a)
-  - Note: read-only. Croft's editor is 24,751 lines precisely because it is not (FR-026)
+  - Touches: `src/tui/canvas.rs` (new), `src/pipeline/artifact.rs` (new), `src/cli/discover.rs`
+    (`expand` now calls the shared function), `src/tui/{mod,ui,work}.rs`
+  - RED/GREEN proof: `cargo test --all-features --lib tui::canvas` (12) and the render tests in
+    `tui::ui`; the end-to-end `running_the_form_writes_a_handoff` now also asserts the canvas opened
+  - Acceptance: on success the pane opens at L0 **with no further keypress** (asserted on a real
+    extraction, not a mock); L0–L3 step by number and by tab; `[evt a–b]` pointers resolve through
+    **the same function the CLI uses** — `pipeline::artifact::expand_ranges`, which `sctxx expand` now
+    calls too, so there is no second implementation to drift; the ledgers are visible alongside, which
+    they are because the renderer emits them in L1 and the canvas reads the artifact rather than
+    re-rendering it; an existing artifact opens by path (FR-016a), including a colleague's
+  - Evidence: the real 58 KB artifact carries `## L0 · Brief`, `## L1 · Items`,
+    `## L2 · Recent activity (masked, evt 1058–1961)` and `## L3 · Retrieval`, with 14 pointers — the
+    format the canvas parses
+  - **Bug found by writing the tests:** with the cursor pinned to the top visible line, a pointer on
+    the second line of a *short* artifact was unreachable, because there was nothing to scroll. The
+    canvas now has a cursor the window follows, with
+    `every_line_is_reachable_even_in_a_document_shorter_than_the_window` as the regression test
+  - Note: reading takes the whole body. Prose in half a terminal is not reading, and the list is not
+    needed while the artifact is open
+
+- [ ] **T2403** [FR-003] The pane rail — **deferred until there are panes to switch between**
+  - A rail exists to move between panes. With only SCTXX and the canvas, both of which are reached by
+    a key and both of which want the whole body, a rail would be decoration. It lands with the Files
+    pane (T2416) and Search (T2417), which are the first two that genuinely sit side by side. The
+    original T2403 entry is kept below for its acceptance criteria.
+  - Original acceptance: five rail entries in the spec's order, SCTXX selected on start, key and click
+    both switch, `q` quits from any pane, `?` overlays the keymap; an unavailable pane says why rather
+    than disappearing
 
 - [ ] **T2414** [FR-021a, FR-021b] Re-redact before egress, and keep launch a separate confirmation
   - **Half done.** The separate confirmation landed with T2413: choosing an agent and confirming the

@@ -8,9 +8,9 @@ use super::{GlobalArgs, out, out_json};
 use crate::adapters::{self, discovery};
 use crate::error::{Error, Result};
 use crate::ir::{AgentKind, EventIdx};
-use crate::pipeline::mask;
+use crate::pipeline::{artifact, mask};
 use clap::Args;
-use std::path::PathBuf;
+use std::path::Path;
 
 /// `sctxx list`
 #[derive(Debug, Args)]
@@ -321,7 +321,7 @@ fn parse_range(text: &str) -> Result<(EventIdx, EventIdx)> {
 pub fn expand(args: &ExpandArgs, global: &GlobalArgs) -> Result<i32> {
     // An artifact knows which session it came from, so `sctxx expand .sctxx/`
     // works without the user repeating the reference.
-    let reference_text = match resolve_artifact_reference(&args.reference) {
+    let reference_text = match artifact::source_reference(Path::new(&args.reference)) {
         Some(reference) => {
             global.note(&format!("resolved artifact to session {reference}"));
             reference
@@ -335,68 +335,14 @@ pub fn expand(args: &ExpandArgs, global: &GlobalArgs) -> Result<i32> {
         .ok_or_else(|| Error::UnknownFormat(summary.path.clone()))?;
     let source = adapters::source::read(&summary.path)?;
     let session = adapters::parse_as(agent, source, adapters::DEFAULT_MAX_BAD_LINE_RATE)?;
-    let rows = mask::build(&session, &mask::MaskOptions::default());
 
-    let mut out_text = String::new();
+    let mut ranges = Vec::new();
     for text in &args.ranges {
-        let (start, end) = parse_range(text)?;
-        let start = start.saturating_sub(args.context);
-        let end = end.saturating_add(args.context);
-        let selected: Vec<mask::Row> = rows
-            .iter()
-            .filter(|row| (start..=end).contains(&row.evt))
-            .cloned()
-            .collect();
-        out_text.push_str(&format!("=== evt {start}–{end} ===\n"));
-        if selected.is_empty() {
-            out_text.push_str("(no rows in this range; it may fall outside the active branch)\n");
-        } else {
-            out_text.push_str(&mask::render(&selected));
-        }
+        ranges.push(parse_range(text)?);
     }
-    out(&out_text);
+    // The same function the canvas calls, so `[evt a-b]` means one thing.
+    out(&artifact::expand_ranges(&session, &ranges, args.context));
     Ok(0)
-}
-
-/// Read the session reference out of a `handoff.md`, `handoff.json`, or a
-/// `.sctxx/` directory.
-fn resolve_artifact_reference(candidate: &str) -> Option<String> {
-    let path = PathBuf::from(candidate);
-    if !path.exists() {
-        return None;
-    }
-    let file = if path.is_dir() {
-        let json = path.join("handoff.json");
-        if json.is_file() {
-            json
-        } else {
-            path.join("handoff.md")
-        }
-    } else {
-        path
-    };
-    let body = std::fs::read_to_string(&file).ok()?;
-
-    if file.extension().is_some_and(|ext| ext == "json") {
-        let value: serde_json::Value = serde_json::from_str(&body).ok()?;
-        let agent = value["session"]["agent"].as_str()?;
-        let id = value["session"]["id"].as_str()?;
-        return Some(format!("{agent}:{id}"));
-    }
-    // The markdown front matter carries `source: {agent: ..., session: ...}`.
-    let line = body
-        .lines()
-        .take(30)
-        .find(|line| line.starts_with("source:"))?;
-    let agent = field(line, "agent:")?;
-    let session = field(line, "session:")?;
-    Some(format!("{agent}:{session}"))
-}
-
-fn field(line: &str, key: &str) -> Option<String> {
-    let after = line.split(key).nth(1)?;
-    let value = after.trim_start().split([',', '}']).next()?.trim();
-    (!value.is_empty()).then(|| value.to_string())
 }
 
 #[cfg(test)]
@@ -410,39 +356,6 @@ mod tests {
         assert_eq!(parse_range(" 7 ").expect("parse"), (7, 7));
         assert_eq!(parse_range("20..10").expect_err("reject").exit_code(), 2);
         assert_eq!(parse_range("a..b").expect_err("reject").exit_code(), 2);
-    }
-
-    #[test]
-    fn an_artifact_directory_resolves_to_its_session() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("handoff.md"),
-            "---\nschema: sctxx.handoff/v1\nsource: {agent: claude, session: 7c1e8f82, events: 10}\n---\n",
-        )
-        .expect("write");
-        assert_eq!(
-            resolve_artifact_reference(&dir.path().to_string_lossy()).as_deref(),
-            Some("claude:7c1e8f82")
-        );
-    }
-
-    #[test]
-    fn an_artifact_json_resolves_to_its_session() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("handoff.json"),
-            r#"{"session":{"agent":"codex","id":"abc-123"}}"#,
-        )
-        .expect("write");
-        assert_eq!(
-            resolve_artifact_reference(&dir.path().to_string_lossy()).as_deref(),
-            Some("codex:abc-123")
-        );
-    }
-
-    #[test]
-    fn a_plain_reference_is_left_alone() {
-        assert!(resolve_artifact_reference("claude:abcdef").is_none());
     }
 
     #[test]

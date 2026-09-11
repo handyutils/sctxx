@@ -12,6 +12,7 @@
 
 pub mod browser;
 
+mod canvas;
 mod form;
 mod preview;
 mod ui;
@@ -22,14 +23,16 @@ use crate::agents::Agent;
 use crate::agents::seeding::Launch;
 use crate::cli::GlobalArgs;
 use crate::error::{Error, Result};
+use crate::pipeline::artifact;
 use browser::Browser;
+use canvas::Canvas;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use form::{Control, Form};
 use preview::LedgerPreview;
 use ratatui::DefaultTerminal;
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use work::Worker;
 
@@ -50,6 +53,9 @@ const CACHE_MAX: usize = 256;
 /// How many progress lines the extraction pane keeps.
 const PROGRESS_KEPT: usize = 12;
 
+/// The body height assumed before the first frame is drawn.
+const DEFAULT_BODY_HEIGHT: usize = 24;
+
 /// Which half of the interaction the keyboard is in.
 ///
 /// A mode rather than bare keystrokes because `a`, `r`, `p`, `e` and `q` are
@@ -61,6 +67,10 @@ enum Mode {
     Search,
     Form,
     Handoff,
+    /// Reading the artifact.
+    Canvas,
+    /// Typing a path to an artifact that already exists.
+    OpenArtifact,
 }
 
 /// What the event loop decided to do next.
@@ -128,6 +138,13 @@ struct App {
     previews: BTreeMap<String, PreviewState>,
     /// The extraction form, when one is open.
     form: Option<Form>,
+    /// The artifact open for reading (FR-016, FR-016a).
+    canvas: Option<Canvas>,
+    /// What has been typed into the "open an artifact" prompt.
+    open_path: String,
+    /// How tall the body is, in rows. The event loop sets it each frame, because
+    /// the canvas needs it to know what a page is.
+    body_height: usize,
     /// The handoff flow, when it is open.
     handoff: Option<HandoffState>,
     /// Which detected agent the cursor is on.
@@ -161,6 +178,9 @@ impl App {
             mode: Mode::Browse,
             previews: BTreeMap::new(),
             form: None,
+            canvas: None,
+            open_path: String::new(),
+            body_height: DEFAULT_BODY_HEIGHT,
             handoff: None,
             handoff_cursor: 0,
             handoff_note: None,
@@ -206,12 +226,36 @@ impl App {
                         }
                     }
                 }
+                work::Done::Expanded { label, result } => {
+                    if let Some(canvas) = self.canvas.as_mut() {
+                        match result {
+                            Ok(text) => canvas.expansion_ready(label, &text),
+                            Err(reason) => canvas.expansion_failed(label, reason),
+                        }
+                    }
+                }
                 work::Done::Agents(detected) => {
                     self.agents = Some(detected);
                 }
                 work::Done::Extracted { result } => {
                     self.run = match result {
-                        Ok(outcome) => RunState::Done(outcome),
+                        Ok(outcome) => {
+                            // FR-016: the artifact opens itself, at L0, without
+                            // another keypress. A developer who has to go and
+                            // find it will not read it.
+                            match Canvas::load(&outcome.handoff) {
+                                Ok(canvas) => {
+                                    self.canvas = Some(canvas);
+                                    self.mode = Mode::Canvas;
+                                }
+                                Err(error) => {
+                                    // The files are written; only reading them
+                                    // back failed, so say so and stay put.
+                                    self.handoff_note = Some(error.to_string());
+                                }
+                            }
+                            RunState::Done(outcome)
+                        }
                         Err(reason) => RunState::Failed(reason),
                     };
                 }
@@ -256,6 +300,129 @@ impl App {
             }
         }
         self.previews.insert(id, state);
+    }
+
+    /// The height of the reading area, which is what a page is.
+    fn page(&self) -> usize {
+        self.body_height.saturating_sub(2).max(1)
+    }
+
+    /// Show the artifact: the one just written, or one already on disk for the
+    /// selected session.
+    ///
+    /// A previous run's `.sctxx/handoff.md` is the ordinary case FR-016a names —
+    /// the point is that the pane is a viewer, not only a receipt.
+    fn open_canvas(&mut self) {
+        if self.canvas.is_some() {
+            self.mode = Mode::Canvas;
+            return;
+        }
+        let candidate = self
+            .browser
+            .selected()
+            .and_then(|session| session.cwd.clone())
+            .map(|cwd| PathBuf::from(cwd).join(".sctxx"));
+        let Some(candidate) = candidate else {
+            return;
+        };
+        if !candidate.join("handoff.md").is_file() && !candidate.join("handoff.json").is_file() {
+            return;
+        }
+        match Canvas::load(&candidate) {
+            Ok(canvas) => {
+                self.canvas = Some(canvas);
+                self.mode = Mode::Canvas;
+            }
+            Err(error) => {
+                self.handoff = None;
+                self.run = RunState::Failed(error.to_string());
+            }
+        }
+    }
+
+    /// Open an artifact by the path the developer typed (FR-016a).
+    fn handle_open_artifact(&mut self, key: KeyEvent) -> Step {
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                return Step::Quit;
+            }
+            KeyCode::Esc => {
+                self.open_path.clear();
+                self.mode = Mode::Browse;
+            }
+            KeyCode::Enter => {
+                let typed = self.open_path.trim().to_string();
+                if !typed.is_empty() {
+                    match Canvas::load(Path::new(&typed)) {
+                        Ok(canvas) => {
+                            self.canvas = Some(canvas);
+                            self.mode = Mode::Canvas;
+                        }
+                        Err(error) => {
+                            self.handoff_note = Some(error.to_string());
+                        }
+                    }
+                }
+                self.open_path.clear();
+            }
+            KeyCode::Backspace => {
+                self.open_path.pop();
+            }
+            KeyCode::Char(character) => self.open_path.push(character),
+            _ => {}
+        }
+        Step::Continue
+    }
+
+    /// Reading keys: layers, scrolling, and following a pointer.
+    fn handle_canvas(&mut self, key: KeyEvent) -> Step {
+        let page = self.page();
+        let Some(canvas) = self.canvas.as_mut() else {
+            self.mode = Mode::Browse;
+            return Step::Continue;
+        };
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                return Step::Quit;
+            }
+            KeyCode::Char('q') => return Step::Quit,
+            // `esc` closes an expansion first, and only then the canvas: a
+            // reader who opened a pointer expects esc to put it back.
+            KeyCode::Esc if !canvas.dismiss_expansion() => self.mode = Mode::Browse,
+            KeyCode::Tab => canvas.step_layer(1),
+            KeyCode::BackTab => canvas.step_layer(-1),
+            KeyCode::Char('1') => canvas.select_layer(0),
+            KeyCode::Char('2') => canvas.select_layer(1),
+            KeyCode::Char('3') => canvas.select_layer(2),
+            KeyCode::Char('4') => canvas.select_layer(3),
+            KeyCode::Char('j') | KeyCode::Down => canvas.move_cursor(1, page),
+            KeyCode::Char('k') | KeyCode::Up => canvas.move_cursor(-1, page),
+            KeyCode::PageDown | KeyCode::Char(' ') => canvas.move_page(true, page),
+            KeyCode::PageUp | KeyCode::Char('b') => canvas.move_page(false, page),
+            KeyCode::Char('g') | KeyCode::Home => canvas.move_to(false, page),
+            KeyCode::Char('G') | KeyCode::End => canvas.move_to(true, page),
+            KeyCode::Enter => {
+                if let Some(range) = canvas.pointer_under_cursor() {
+                    let label = if range.0 == range.1 {
+                        format!("evt {}", range.0)
+                    } else {
+                        format!("evt {}–{}", range.0, range.1)
+                    };
+                    canvas.expansion_pending(label.clone());
+                    // The artifact knows its own source, which is what makes a
+                    // colleague's handoff readable too.
+                    match artifact::source_reference(canvas.path()) {
+                        Some(reference) => self.worker.expand(&reference, range, &self.global),
+                        None => canvas.expansion_failed(
+                            label,
+                            "this artifact does not name the session it came from".to_string(),
+                        ),
+                    }
+                }
+            }
+            _ => {}
+        }
+        Step::Continue
     }
 
     /// Open the handoff, once an extraction has produced something to hand on.
@@ -414,12 +581,23 @@ impl App {
             self.open_handoff();
             return Step::Continue;
         }
+        if self.mode == Mode::Browse && key.code == KeyCode::Char('c') {
+            self.open_canvas();
+            return Step::Continue;
+        }
+        if self.mode == Mode::Browse && key.code == KeyCode::Char('o') {
+            self.open_path.clear();
+            self.mode = Mode::OpenArtifact;
+            return Step::Continue;
+        }
 
         let step = match self.mode {
             Mode::Browse => handle_browse(key, &mut self.browser, &mut self.mode),
             Mode::Search => handle_search(key, &mut self.browser, &mut self.mode),
             Mode::Form => return self.handle_form(key),
             Mode::Handoff => return self.handle_handoff(key),
+            Mode::Canvas => return self.handle_canvas(key),
+            Mode::OpenArtifact => return self.handle_open_artifact(key),
         };
         // Any key restarts the delay: while a query is being typed the visible
         // list is still moving, and reading a session the developer is about to
@@ -511,6 +689,11 @@ pub fn run(global: &GlobalArgs) -> Result<i32> {
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
         app.pump();
+        // The canvas needs to know what a page is, and only the terminal does.
+        app.body_height = terminal
+            .size()
+            .map(|size| size.height as usize)
+            .unwrap_or(DEFAULT_BODY_HEIGHT);
         terminal
             .draw(|frame| ui::draw(frame, app))
             .map_err(|error| Error::Other(format!("could not draw: {error}")))?;
@@ -882,6 +1065,14 @@ mod tests {
         match &app.run {
             RunState::Done(outcome) => {
                 assert_eq!(outcome.reference, "claude:fixture");
+                // FR-016: the run opened the artifact by itself, at L0.
+                assert_eq!(app.mode, Mode::Canvas, "the artifact opens itself");
+                let canvas = app.canvas.as_ref().expect("the canvas is up");
+                assert_eq!(canvas.current(), 0, "and starts at L0");
+                assert!(
+                    canvas.layers().iter().any(|layer| layer.name == "L0"),
+                    "L0 is the layer the artifact was rendered with"
+                );
                 assert!(
                     outcome.paths.len() >= 5,
                     "a directory destination gets the full set, got {:?}",
@@ -1060,6 +1251,157 @@ mod tests {
                 .unwrap_or_default()
                 .contains("boom")
         );
+    }
+
+    /// An app with an artifact already on disk and open.
+    fn canvas_app() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("handoff.md"),
+            "# Handoff\n\nsource: {agent: claude, session: aaa}\n\n## L0 · Brief\n\nthe goal [evt 41]\n\n## L1 · Items\n\n- a file [evt 12–14]\n",
+        )
+        .expect("write");
+        let mut app = app();
+        app.canvas = Some(Canvas::load(&dir.path().join("handoff.md")).expect("load"));
+        app.mode = Mode::Canvas;
+        app.body_height = 24;
+        (dir, app)
+    }
+
+    #[test]
+    fn c_opens_an_artifact_left_by_an_earlier_run() {
+        // FR-016a: the pane is a viewer, not only a receipt.
+        let project = tempfile::tempdir().expect("tempdir");
+        let artifacts = project.path().join(".sctxx");
+        std::fs::create_dir_all(&artifacts).expect("mkdir");
+        std::fs::write(
+            artifacts.join("handoff.md"),
+            "source: {agent: claude, session: aaa}\n\n## L0 · Brief\n\nfrom an earlier run\n",
+        )
+        .expect("write");
+
+        let mut session = summary("aaa");
+        session.cwd = Some(project.path().to_string_lossy().into_owned());
+        let mut app = App::new(vec![session], 100, None, GlobalArgs::default());
+
+        app.handle(key(KeyCode::Char('c')));
+        assert_eq!(app.mode, Mode::Canvas);
+        assert!(app.canvas.is_some(), "the earlier artifact opens");
+    }
+
+    #[test]
+    fn c_does_nothing_when_there_is_no_artifact_to_read() {
+        let mut app = app();
+        app.handle(key(KeyCode::Char('c')));
+        assert_eq!(
+            app.mode,
+            Mode::Browse,
+            "nothing to show, so nothing happens"
+        );
+        assert!(app.canvas.is_none());
+    }
+
+    #[test]
+    fn the_canvas_switches_layers_and_scrolls() {
+        let (_dir, mut app) = canvas_app();
+        assert_eq!(app.canvas.as_ref().map(Canvas::current), Some(0));
+        app.handle(key(KeyCode::Char('2')));
+        assert_eq!(app.canvas.as_ref().map(Canvas::current), Some(1));
+        app.handle(key(KeyCode::Tab));
+        assert_eq!(
+            app.canvas.as_ref().map(Canvas::current),
+            Some(1),
+            "only two layers"
+        );
+        app.handle(key(KeyCode::Char('1')));
+        assert_eq!(app.canvas.as_ref().map(Canvas::current), Some(0));
+        // Scrolling is clamped, and `esc` leaves the canvas.
+        app.handle(key(KeyCode::Char('G')));
+        app.handle(key(KeyCode::Char('g')));
+        app.handle(key(KeyCode::Esc));
+        assert_eq!(app.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn following_a_pointer_asks_the_worker_and_esc_closes_it() {
+        let (_dir, mut app) = canvas_app();
+        // The first line of L0 is blank, so step onto the goal line, which has a
+        // pointer on it.
+        app.handle(key(KeyCode::Char('j')));
+        let pointer = app.canvas.as_ref().and_then(Canvas::pointer_under_cursor);
+        assert_eq!(pointer, Some((41, 41)), "the goal line names evt 41");
+
+        app.handle(key(KeyCode::Enter));
+        assert!(
+            matches!(
+                app.canvas.as_ref().and_then(Canvas::expansion),
+                Some(crate::tui::canvas::Expansion::Pending { .. })
+            ),
+            "the range is asked for, not read on the UI thread"
+        );
+
+        // `esc` closes the range first, and only then the canvas.
+        app.handle(key(KeyCode::Esc));
+        assert!(app.canvas.as_ref().and_then(Canvas::expansion).is_none());
+        assert_eq!(app.mode, Mode::Canvas, "the canvas is still open");
+        app.handle(key(KeyCode::Esc));
+        assert_eq!(app.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn an_artifact_that_names_no_session_says_so_instead_of_asking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("handoff.md"),
+            "## L0 · Brief\n\nthe goal [evt 41]\n",
+        )
+        .expect("write");
+        let mut app = app();
+        app.canvas = Some(Canvas::load(&dir.path().join("handoff.md")).expect("load"));
+        app.mode = Mode::Canvas;
+
+        app.handle(key(KeyCode::Char('j')));
+        app.handle(key(KeyCode::Enter));
+        let shown = app
+            .canvas
+            .as_ref()
+            .map(|canvas| canvas.window(10).join("\n"))
+            .unwrap_or_default();
+        assert!(shown.contains("does not name the session"), "{shown}");
+    }
+
+    #[test]
+    fn a_path_can_be_typed_to_open_an_artifact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("colleague.md");
+        std::fs::write(&path, "## L0 · Brief\n\ntheir goal\n").expect("write");
+
+        let mut app = app();
+        app.handle(key(KeyCode::Char('o')));
+        assert_eq!(app.mode, Mode::OpenArtifact);
+        for character in path.to_string_lossy().chars() {
+            app.handle(key(KeyCode::Char(character)));
+        }
+        app.handle(key(KeyCode::Enter));
+        assert_eq!(app.mode, Mode::Canvas);
+        assert!(app.canvas.is_some(), "a colleague's artifact opens by path");
+    }
+
+    #[test]
+    fn a_path_that_is_not_an_artifact_reports_rather_than_opening_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("shopping-list.md");
+        std::fs::write(&path, "milk\n").expect("write");
+
+        let mut app = app();
+        app.handle(key(KeyCode::Char('o')));
+        for character in path.to_string_lossy().chars() {
+            app.handle(key(KeyCode::Char(character)));
+        }
+        app.handle(key(KeyCode::Enter));
+        assert_eq!(app.mode, Mode::OpenArtifact, "still typing, not opened");
+        let note = app.handoff_note.clone().expect("a reason");
+        assert!(note.contains("no L0 layer"), "{note}");
     }
 
     #[test]

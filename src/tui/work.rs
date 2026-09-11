@@ -18,8 +18,11 @@
 //! exits and takes the thread with it.
 
 use super::preview::{self, LedgerPreview};
-use crate::adapters::discovery::SessionSummary;
+use crate::adapters::{self, discovery, discovery::SessionSummary};
 use crate::agents::{self, Agent};
+use crate::cli::GlobalArgs;
+use crate::ir::{AgentKind, EventIdx};
+use crate::pipeline::artifact;
 use crate::pipeline::{self, ExtractOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,6 +47,16 @@ enum Job {
     /// reading three `--version` outputs is fast but not free and belongs off
     /// the thread that draws.
     DetectAgents,
+    /// Read the events behind an `[evt a–b]` pointer.
+    ///
+    /// It parses a whole session, so it belongs here rather than on the thread
+    /// that draws — the canvas says which range, this reads it.
+    Expand {
+        reference: String,
+        ranges: Vec<(EventIdx, EventIdx)>,
+        context: EventIdx,
+        global: Box<GlobalArgs>,
+    },
     /// Run an extraction and write it where the developer said.
     Extract {
         summary: SessionSummary,
@@ -87,6 +100,11 @@ pub enum Done {
     /// The agents on this machine. Detection always answers, with the reason
     /// each agent is or is not usable, so this cannot fail.
     Agents(Vec<Agent>),
+    /// The rows behind a pointer, or why they could not be read.
+    Expanded {
+        label: String,
+        result: std::result::Result<String, String>,
+    },
 }
 
 /// The handle the UI holds. Dropping it ends the worker.
@@ -132,6 +150,16 @@ impl Worker {
         let _ = self.jobs.send(Job::Ledgers {
             generation,
             summary: summary.clone(),
+        });
+    }
+
+    /// Read the events behind one `[evt a–b]` pointer.
+    pub fn expand(&self, reference: &str, range: (EventIdx, EventIdx), global: &GlobalArgs) {
+        let _ = self.jobs.send(Job::Expand {
+            reference: reference.to_string(),
+            ranges: vec![range],
+            context: 0,
+            global: Box::new(global.clone()),
         });
     }
 
@@ -188,6 +216,19 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>, generation: &AtomicU64, loader: 
                     break;
                 }
             }
+            Job::Expand {
+                reference,
+                ranges,
+                context,
+                global,
+            } => {
+                let label = range_label(&ranges);
+                let result = expand(&reference, &ranges, context, &global)
+                    .map_err(|error| error.to_string());
+                if done.send(Done::Expanded { label, result }).is_err() {
+                    break;
+                }
+            }
             Job::DetectAgents => {
                 if done
                     .send(Done::Agents(agents::Machine::this_one().detect()))
@@ -210,6 +251,43 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>, generation: &AtomicU64, loader: 
             }
         }
     }
+}
+
+/// How a range is named on screen, matching what `sctxx expand` prints.
+fn range_label(ranges: &[(EventIdx, EventIdx)]) -> String {
+    ranges
+        .iter()
+        .map(|(start, end)| {
+            if start == end {
+                format!("evt {start}")
+            } else {
+                format!("evt {start}–{end}")
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+/// Read the rows behind a pointer.
+///
+/// The same library call `sctxx expand` makes, reached through the same
+/// function, so a pointer means one thing in both places (FR-016).
+fn expand(
+    reference: &str,
+    ranges: &[(EventIdx, EventIdx)],
+    context: EventIdx,
+    global: &GlobalArgs,
+) -> crate::error::Result<String> {
+    let parsed = discovery::parse_reference(reference)?;
+    // Any project: the handoff may name a session whose directory the developer
+    // is not standing in.
+    let options = global.resolve_options(true, true);
+    let summary = discovery::resolve(&parsed, &options)?;
+    let agent = AgentKind::from_slug(summary.agent)
+        .ok_or_else(|| crate::error::Error::UnknownFormat(summary.path.clone()))?;
+    let source = adapters::source::read(&summary.path)?;
+    let session = adapters::parse_as(agent, source, adapters::DEFAULT_MAX_BAD_LINE_RATE)?;
+    Ok(artifact::expand_ranges(&session, ranges, context))
 }
 
 /// Run the pipeline and write the artifact, reporting each stage as it starts.

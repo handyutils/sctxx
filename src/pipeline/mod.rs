@@ -15,6 +15,7 @@
 //! S6 (the probe loop) is roadmap M5 and not built yet; `--mode full`
 //! therefore behaves as `standard` and says so on stderr.
 
+pub mod artifact;
 pub mod fold;
 pub mod ledgers;
 pub mod mask;

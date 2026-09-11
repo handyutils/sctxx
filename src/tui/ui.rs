@@ -11,6 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::browser::Browser;
+use super::canvas::Expansion;
 use super::form::Form;
 use super::preview::LedgerPreview;
 use super::{App, HandoffState, Mode, PreviewState, RunState};
@@ -37,17 +38,23 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
 
     header(frame, rows[0], &app.browser);
 
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
-        .split(rows[1]);
-    list(frame, body[0], &app.browser);
-    // The handoff takes the pane when it is open: it is the last step, and it
-    // needs the room for the command it is about to run.
-    match (&app.handoff, &app.form) {
-        (Some(state), _) => handoff_pane(frame, body[1], app, state),
-        (None, Some(form)) => extract_pane(frame, body[1], form, &app.run),
-        (None, None) => preview(frame, body[1], &app.browser, app.preview_state()),
+    // Reading takes the whole body: prose in half a terminal is not reading.
+    if app.mode == Mode::Canvas && app.canvas.is_some() {
+        canvas_pane(frame, rows[1], app);
+    } else {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
+            .split(rows[1]);
+        list(frame, body[0], &app.browser);
+        // The handoff and the canvas take the pane when they are open: each is
+        // the last step of its flow and needs the room.
+        match (&app.handoff, &app.form, app.mode) {
+            (Some(state), _, _) => handoff_pane(frame, body[1], app, state),
+            (None, Some(form), _) => extract_pane(frame, body[1], form, &app.run),
+            (None, None, Mode::OpenArtifact) => open_artifact_pane(frame, body[1], app),
+            (None, None, _) => preview(frame, body[1], &app.browser, app.preview_state()),
+        }
     }
 
     footer(frame, rows[2], &app.browser, app.mode);
@@ -457,6 +464,101 @@ fn handoff_pane(frame: &mut Frame, area: Rect, app: &App, state: &HandoffState) 
     );
 }
 
+/// The artifact, readable in place.
+///
+/// The cursor is the top visible line — that is the line `enter` follows a
+/// pointer from — so it is drawn highlighted rather than left as a rule the
+/// reader has to guess.
+fn canvas_pane(frame: &mut Frame, area: Rect, app: &App) {
+    let Some(canvas) = app.canvas.as_ref() else {
+        return;
+    };
+    let title = match canvas.expansion() {
+        Some(expansion) => format!(" artifact · {} ", expansion.label()),
+        None => format!(" artifact · {} ", canvas.path().display()),
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(truncate(&title, 240));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    let height = rows[0].height as usize;
+
+    let mut lines: Vec<Line> = Vec::new();
+    if let Some(Expansion::Pending { label }) = canvas.expansion() {
+        lines.push(Line::styled(
+            format!(" reading {label}…"),
+            Style::default().fg(ACCENT),
+        ));
+    }
+    let visible = height.saturating_sub(lines.len());
+    let cursor_row = canvas.cursor_row(visible);
+    for (offset, text) in canvas.window(visible).iter().enumerate() {
+        let style = if Some(offset) == cursor_row {
+            Style::default().bg(ACCENT).fg(Color::Black)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::styled(text.clone(), style));
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), rows[0]);
+
+    // Where the reader is: which layer, and how far into it.
+    let mut tabs: Vec<Span> = Vec::new();
+    for (index, layer) in canvas.layers().iter().enumerate() {
+        let style = if index == canvas.current() {
+            Style::default().bg(ACCENT).fg(Color::Black)
+        } else {
+            Style::default().fg(DIM)
+        };
+        tabs.push(Span::styled(format!(" {} ", layer.name), style));
+    }
+    tabs.push(Span::styled(
+        match canvas.expansion() {
+            Some(_) => "  esc closes this range".to_string(),
+            None => format!(
+                "   enter follows a pointer on the highlighted line · {} lines",
+                canvas.max_scroll(height) + height
+            ),
+        },
+        Style::default().fg(DIM),
+    ));
+    frame.render_widget(Paragraph::new(Line::from(tabs)), rows[1]);
+}
+
+/// The prompt for opening an artifact that already exists (FR-016a).
+fn open_artifact_pane(frame: &mut Frame, area: Rect, app: &App) {
+    let lines = vec![
+        Line::styled(" open a handoff artifact", Style::default().fg(ACCENT)),
+        Line::default(),
+        Line::raw(format!(" {}", app.open_path)),
+        Line::default(),
+        Line::styled(
+            " a .sctxx/ directory, or a handoff.md / handoff.json file.",
+            Style::default().fg(DIM),
+        ),
+        Line::styled(
+            " this is how a previous run, or a colleague's artifact, is read.",
+            Style::default().fg(DIM),
+        ),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" read an artifact "),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
 /// What the extraction pane says about the run.
 fn run_lines(run: &RunState) -> Vec<Line<'static>> {
     match run {
@@ -535,6 +637,8 @@ fn footer(frame: &mut Frame, area: Rect, browser: &Browser, mode: Mode) {
         Mode::Search => " type to filter · enter keep · esc clear ",
         Mode::Form => " ↑/↓ field · space toggle · ←/→ choose · enter run · esc back ",
         Mode::Handoff => " ↑/↓ agent · enter choose · y run · esc back ",
+        Mode::Canvas => " 1-4 layer · tab next · j/k scroll · enter follow pointer · esc back ",
+        Mode::OpenArtifact => " type a path to a handoff artifact · enter open · esc cancel ",
         Mode::Browse => {
             " j/k move · / search · a agent · r date · p project · e extract · h handoff · q quit "
         }
@@ -641,6 +745,7 @@ mod tests {
     use crate::agents::Agent;
     use crate::cli::GlobalArgs;
     use crate::tui::PreviewState;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use std::path::PathBuf;
@@ -1044,6 +1149,80 @@ mod tests {
                 "missing {key:?} from the footer:\n{text}"
             );
         }
+    }
+
+    /// An app with an artifact open for reading.
+    fn canvas_app() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("handoff.md");
+        std::fs::write(
+            &path,
+            "# Handoff\n\nsource: {agent: claude, session: aaa}\n\n## L0 · Brief\n\nthe goal [evt 41]\nnext step\n\n## L1 · Items\n\n- a file [evt 12–14]\n\n## L3 · Retrieval\n\nsctxx expand .sctxx/ 41\n",
+        )
+        .expect("write");
+        let mut app = app();
+        app.canvas = Some(super::super::canvas::Canvas::load(&path).expect("load"));
+        app.mode = Mode::Canvas;
+        app.body_height = 24;
+        (dir, app)
+    }
+
+    #[test]
+    fn the_canvas_shows_the_artifact_and_the_layer_tabs() {
+        let (_dir, app) = canvas_app();
+        let text = screen(&app, 150, 40);
+        assert!(text.contains("artifact"), "{text}");
+        assert!(
+            text.contains("the goal [evt 41]"),
+            "L0 is on screen:\n{text}"
+        );
+        assert!(text.contains("handoff.md"), "and which file:\n{text}");
+        // The tabs, so the reader knows there are three layers and which is current.
+        for layer in ["L0", "L1", "L3"] {
+            assert!(text.contains(layer), "missing {layer}:\n{text}");
+        }
+        // The footer explains the keys rather than leaving them to be guessed.
+        assert!(text.contains("1-4 layer"), "{text}");
+        assert!(text.contains("enter follow pointer"), "{text}");
+    }
+
+    #[test]
+    fn switching_layers_changes_what_is_read() {
+        let (_dir, mut app) = canvas_app();
+        app.handle(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        let text = screen(&app, 150, 40);
+        assert!(
+            text.contains("a file [evt 12–14]"),
+            "L1 is on screen:\n{text}"
+        );
+        assert!(
+            !text.contains("the goal [evt 41]"),
+            "and L0 is not:\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_range_being_read_says_so_rather_than_showing_a_stale_layer() {
+        let (_dir, mut app) = canvas_app();
+        app.handle(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        app.handle(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let text = screen(&app, 150, 40);
+        assert!(text.contains("reading evt 41"), "{text}");
+        assert!(text.contains("esc closes this range"), "{text}");
+    }
+
+    #[test]
+    fn the_open_artifact_prompt_asks_for_a_path() {
+        let mut app = app();
+        app.mode = Mode::OpenArtifact;
+        app.open_path = "/tmp/somewhere/.sctxx".to_string();
+        let text = screen(&app, 150, 40);
+        assert!(text.contains("open a handoff artifact"), "{text}");
+        assert!(text.contains("/tmp/somewhere/.sctxx"), "{text}");
+        assert!(
+            text.contains("a previous run, or a colleague's artifact"),
+            "{text}"
+        );
     }
 
     #[test]
