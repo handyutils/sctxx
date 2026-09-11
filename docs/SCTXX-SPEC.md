@@ -595,6 +595,31 @@ Every row stores `evt` and a token estimate (Codex 4-bytes/token approximation, 
 
 **Chunking.** Pack consecutive episodes into chunks ≤ `chunk_tokens` (default 24,000; scaled to 20% of the fold model's context window if known). Rules: never split a `ToolCall` from its `ToolResult`; an episode larger than `chunk_tokens` is split at assistant-message boundaries; each chunk records `evt_start..=evt_end` and `episode_ids`.
 
+### 7.3b S1b — Deterministic typed layer
+
+Runs after S1 and before S2, and before any model call. It reads the session's non-meta user turns and
+extracts **standing instructions** — the sentences that tell a future agent what it may not do — as
+`Constraint` items, with no model and no schema change. See ADR 0008.
+
+- **Head-anchored.** A rule is stated in the imperative, so its directive is at the head of the
+  clause. `never push to main` is a rule; `contracts must not break` is a property containing the same
+  words. In a *transcript* the imperative mood is what the user wants done now, so `make sure` /
+  `ensure` / `be sure` and bare `you must` are **not** markers, unlike in the authored rules files the
+  source papers measure. Fenced code, interrogatives, capitalised headings, and harness noise are
+  rejected.
+- **Scoped.** A constraint records the subsystems it names (`σ`). Naming none means **global**, which
+  is the conservative direction: over-replication costs tokens, under-replication loses the rule.
+- **Replicated.** Every constraint that governs a chunk is placed in that chunk's prompt before the
+  fold, so a rule stated in chunk 2 governs chunk 30 by arithmetic rather than by a model
+  re-emitting it 28 times.
+- **Verified.** After the fold, every constraint found is checked against the resulting state,
+  restored if the fold dropped it, and reported if it could not be. `triage: {constraints, preserved,
+  restored, missing}` appears in the front matter and in `report.json`.
+- **Stated limits.** When no model ran, the rendered section says that it was found by pattern, that
+  a rule stated declaratively is invisible to it, and that a missing rule is unknown rather than
+  permitted. Measured recall on a real 274-turn session is **1** constraint; this layer is a floor,
+  not a solution.
+
 **Tail split.** The last `--tail` tokens of masked rows (default 12,000), extended backward to the nearest episode start, form the **recency tail** (S4). The fold processes only chunks strictly before the tail, *but* receives a one-line index of tail episodes so it doesn't mark things "open" that the tail already resolves — final reconciliation of open threads happens in S3c.
 
 ---
@@ -939,7 +964,16 @@ sctxx/
 | **L2 Recency tail** | masked rows of the tail (not counted in `--budget`; controlled by `--tail`) | `--tail` |
 | **L3 Retrieval** | source block + exact `sctxx expand` commands | ≤ 150 tokens |
 
-Budget enforcement is in Rust: render by priority order, stop adding items when the layer budget is reached, and list omitted item ids with a one-line hint (`sctxx show state.json --item D14`).
+Budget enforcement is in Rust: render by priority order, stop adding items when the layer budget is
+reached, and list omitted item ids with a one-line hint (`sctxx show state.json --item D14`).
+
+**Mandatory blocks are charged first and never refused.** Three blocks outrank the budget: the notice
+that no model ran, the evidence that contradicts the handoff, and the user's standing instructions. They
+spend from the top of `--budget`, and the optional content is what a tight budget trims. A block that
+does not fit is never discarded whole — the constraints block summarises itself (`… and N more`) instead,
+because an artifact that fits its budget by deleting the section its own preamble calls binding is not
+smaller, it is wrong. If the mandatory blocks alone exceed the budget the artifact exceeds it,
+visibly.
 
 ### 12.3 Example `handoff.md`
 

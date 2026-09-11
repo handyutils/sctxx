@@ -23,6 +23,7 @@ pub mod mask;
 pub mod reconcile;
 pub mod render;
 pub mod segment;
+pub mod triage;
 
 use crate::adapters::{self, discovery::SessionSummary};
 use crate::error::{Error, Result};
@@ -135,6 +136,9 @@ pub struct Report {
     pub rejected_ops: usize,
     /// Whether the model-written layer is in the artifact, and why not.
     pub semantic_state: SemanticState,
+    /// The deterministic typed layer, and what became of it.
+    pub triage: triage::Triage,
+    pub guard: triage::GuardReport,
     pub fold_failed_calls: usize,
     pub llm_input_tokens: u64,
     pub llm_output_tokens: u64,
@@ -215,10 +219,11 @@ impl SemanticState {
             // were a handoff — which is exactly what happened. Kept to two lines,
             // because the rest of L0 is what they came for.
             SemanticState::NotRequested => Some(
-                "No model ran, so there is no extracted state: no goals, constraints, decisions, \
-                 dead ends or current step — only what deterministic passes can prove. That is the \
-                 cheap artifact, and it is evidence rather than understanding. For the semantic \
-                 layer: `sctxx extract <ref> --llm cli:<agent>`.",
+                "No model ran. There is no model-written state: no goals, decisions, dead ends or \
+                 current step, and only the standing instructions a pattern could find — a rule \
+                 stated declaratively is absent rather than absent-minded. What follows is evidence \
+                 rather than understanding. For the semantic layer: `sctxx extract <ref> --llm \
+                 cli:<agent>`.",
             ),
             SemanticState::Ok => None,
             SemanticState::Degraded => Some(
@@ -245,6 +250,10 @@ pub struct Extraction {
     pub plan: segment::Plan,
     pub state: fold::state::FoldState,
     pub reconciliation: reconcile::Reconciliation,
+    /// The deterministic typed layer: standing instructions found by pattern.
+    pub triage: triage::Triage,
+    /// What became of each of them, checked after the semantic pass.
+    pub guard: triage::GuardReport,
     /// The reconciled end state: what the evidence says is true *now*.
     pub end_state: finalize::EndState,
     pub report: Report,
@@ -299,6 +308,8 @@ impl Extraction {
             // The artifact says whether the model-written layer is there, so a
             // reader never has to infer it from absent sections.
             semantic: self.report.semantic_state,
+            triage: Some(self.triage.clone()),
+            guard: self.guard.clone(),
             redact: options.redact,
             // The header reports what the whole session costs as a masked
             // transcript; only the pipeline knows that number.
@@ -476,6 +487,28 @@ pub fn extract_interruptible(
         ),
     );
 
+    // S1b — deterministic typed extraction.
+    //
+    // Before the mask, before the segment, and before any model call, because
+    // the result is what the fold is *given* rather than what it is asked to
+    // find. `ItemKind::Constraint` is first in the rendering priority and the
+    // artifact tells its reader to treat it as binding; it must therefore exist
+    // whether or not a model runs.
+    let triage = triage::run(&session, &ledgers, options.redact);
+    progress(
+        "triage",
+        &format!(
+            "{} standing instruction(s) in {} user message(s){}",
+            triage.constraints.len(),
+            triage.messages,
+            if triage.dropped > 0 {
+                format!(", {} beyond the cap", triage.dropped)
+            } else {
+                String::new()
+            }
+        ),
+    );
+
     // S2/S4 — mask, segment, and split off the recency tail.
     let mask_options = mask::MaskOptions {
         reasoning: if options.keep_reasoning {
@@ -508,6 +541,7 @@ pub fn extract_interruptible(
 
     // S3 — the anchored fold, when a backend is available.
     let mut state = fold::state::FoldState::new();
+    triage::seed(&mut state, &triage);
     let mut fold_report = fold::FoldReport::default();
     let backend = crate::llm::build(&options.llm)?;
     let llm_label = match &backend {
@@ -549,8 +583,9 @@ pub fn extract_interruptible(
                 ledgers: &ledgers,
                 rows: &rows,
                 plan: &plan,
+                triage: &triage,
             };
-            let (folded, report) = fold::run(&input, backend.as_ref(), &fold_options)?;
+            let (folded, report) = fold::run(&input, backend.as_ref(), &fold_options, progress)?;
             state = folded;
             fold_report = report;
 
@@ -588,6 +623,32 @@ pub fn extract_interruptible(
         progress(
             "fold",
             "skipped: no LLM backend. The deterministic artifact is still complete.",
+        );
+    }
+
+    // The deterministic post-compaction verifier (Knowledge Triage §3.3.1). It
+    // runs on the *state* the fold produced, which is where a constraint is
+    // actually lost: the paper measures a run without this check reporting
+    // apparent 1.00 constraint recall while silently dropping a mean 57 % of the
+    // constraints that should have been kept.
+    let guard = triage::verify(&mut state, &triage);
+    if guard.restored > 0 {
+        progress(
+            "triage",
+            &format!(
+                "{} of {} constraint(s) were dropped by the semantic pass and restored",
+                guard.restored, guard.found
+            ),
+        );
+    }
+    if !guard.is_clean() {
+        progress(
+            "triage",
+            &format!(
+                "{} constraint(s) could not be restored: {}",
+                guard.missing.len(),
+                guard.missing.join("; ")
+            ),
         );
     }
 
@@ -667,6 +728,8 @@ pub fn extract_interruptible(
         accepted_ops: fold_report.accepted_ops,
         rejected_ops: fold_report.rejected_ops,
         semantic_state: semantic,
+        triage: triage.clone(),
+        guard: guard.clone(),
         fold_failed_calls: fold_report.failed_calls,
         llm_input_tokens: fold_report.input_tokens,
         llm_output_tokens: fold_report.output_tokens,
@@ -677,6 +740,8 @@ pub fn extract_interruptible(
     };
 
     Ok(Extraction {
+        triage,
+        guard,
         end_state,
         session,
         ledgers,

@@ -76,6 +76,9 @@ pub struct FoldInput<'a> {
     pub ledgers: &'a Ledgers,
     pub rows: &'a [Row],
     pub plan: &'a Plan,
+    /// The deterministic typed layer. Carried in so that a constraint can be
+    /// put in front of the chunk it governs.
+    pub triage: &'a crate::pipeline::triage::Triage,
 }
 
 /// Run premap, the sequential fold, and the final pass.
@@ -83,6 +86,7 @@ pub fn run(
     input: &FoldInput<'_>,
     backend: &dyn Backend,
     options: &FoldOptions,
+    progress: crate::pipeline::Progress<'_>,
 ) -> Result<(FoldState, FoldReport)> {
     let mut state = FoldState::new();
     let mut report = FoldReport::default();
@@ -97,15 +101,57 @@ pub fn run(
     // S3a premap: independent per chunk, so it parallelizes. Its output is
     // advisory; the sequential pass still decides what enters the state.
     let premap_notes = if input.plan.chunks.len() > options.premap_threshold {
-        premap(input, backend, options, &focus, &mut report)?
+        progress(
+            "fold",
+            &format!(
+                "premapping {} chunk(s), {} at a time",
+                input.plan.chunks.len(),
+                options.concurrency
+            ),
+        );
+        let notes = premap(input, backend, options, &focus, &mut report)?;
+        progress("fold", "premap done; starting the sequential fold");
+        notes
     } else {
         vec![String::new(); input.plan.chunks.len()]
     };
 
+    // TypeDecompose (Knowledge Triage §3.3.2): the constraints that govern a
+    // chunk are replicated into that chunk rather than left to survive 40
+    // sequential model calls by being remembered.
+    let scope_vocabulary = crate::pipeline::triage::vocabulary(input.ledgers);
+    let gate = |start, end| {
+        crate::pipeline::triage::constraints_for(
+            input.triage,
+            &crate::pipeline::triage::chunk_subsystems(
+                input.ledgers,
+                start,
+                end,
+                &scope_vocabulary,
+            ),
+        )
+    };
+
     // S3b the sequential anchored fold.
+    //
+    // Reported per chunk. A 40-chunk fold against a real backend runs for hours,
+    // and it used to say nothing at all between "40 chunk(s) to fold" and the
+    // end — an hour and a half of a silent terminal is indistinguishable from a
+    // hang, which is how it was reported.
+    let total = input.plan.chunks.len();
     for (index, chunk) in input.plan.chunks.iter().enumerate() {
         // Between chunks, which is where a minute of waiting accumulates.
         options.cancel.check()?;
+        progress(
+            "fold",
+            &format!(
+                "chunk {}/{total} (evt {}–{}), {} item(s) so far",
+                index + 1,
+                chunk.evt_start,
+                chunk.evt_end,
+                state.active().len()
+            ),
+        );
         let range = EvtRange::new(chunk.evt_start, chunk.evt_end);
         let rows = &input.rows[chunk.rows.clone()];
         let mut chunk_text = crate::pipeline::mask::render(rows);
@@ -119,7 +165,11 @@ pub fn run(
             session: session_label.clone(),
             focus: budget_notice(&state, options, &focus),
             state: state.render_for_prompt(),
-            ledger_slice: ledger_slice(input.ledgers, range),
+            ledger_slice: format!(
+                "{}{}",
+                crate::pipeline::triage::governing_block(&gate(chunk.evt_start, chunk.evt_end)),
+                ledger_slice(input.ledgers, range)
+            ),
             later_index: later_index(input, index),
             prior_summaries: prior_summaries(input.session, range),
             chunk: chunk_text,
@@ -152,6 +202,7 @@ pub fn run(
     // S3c the final pass over the recency tail, which the fold never saw.
     if !input.plan.tail.is_empty() {
         options.cancel.check()?;
+        progress("fold", "final pass over the recency tail");
         let rows = &input.rows[input.plan.tail.clone()];
         let range = EvtRange::new(
             rows.first().map(|row| row.evt).unwrap_or(0),
@@ -162,7 +213,11 @@ pub fn run(
             session: session_label,
             focus: focus.clone(),
             state: state.render_for_prompt(),
-            ledger_slice: last_known_state(input.ledgers),
+            ledger_slice: format!(
+                "{}{}",
+                crate::pipeline::triage::governing_block(&gate(range.start, range.end)),
+                last_known_state(input.ledgers)
+            ),
             later_index: "(nothing — this is the end of the session)".to_string(),
             prior_summaries: prior_summaries(input.session, range),
             chunk: crate::pipeline::mask::render(rows),
@@ -925,19 +980,21 @@ mod failing_backend_tests {
             tail: 0..0,
             tail_episode_ids: Vec::new(),
         };
+        let triage = crate::pipeline::triage::Triage::default();
         let input = FoldInput {
             session: &session,
             ledgers: &ledgers,
             rows: &rows,
             plan: &plan,
+            triage: &triage,
         };
         let options = FoldOptions {
             // One chunk, so there is no premap to confuse the count.
             premap_threshold: usize::MAX,
             ..Default::default()
         };
-        let (state, report) =
-            run(&input, &AlwaysFails, &options).expect("a failed call is not fatal");
+        let (state, report) = run(&input, &AlwaysFails, &options, &mut |_, _| {})
+            .expect("a failed call is not fatal");
 
         assert_eq!(report.calls, 1);
         assert_eq!(report.failed_calls, 1, "the failure must be counted");

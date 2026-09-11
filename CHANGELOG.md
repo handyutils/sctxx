@@ -7,6 +7,48 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+### Added
+
+- **A deterministic typed layer, so `--llm none` produces constraints instead of an empty section.**
+  `ItemKind::Constraint` is first in the rendering priority and the artifact's preamble tells its
+  reader to treat the section as *binding user instructions* — but only the fold could create one,
+  and ADR 0007 made the fold opt-in. The default artifact therefore instructed its reader to obey a
+  section that did not exist (`state.json` on a real 103,757-event session: `"items": []`). A new
+  stage, S1b, extracts standing instructions from the session's non-meta user turns before anything
+  else runs, with no model and no schema change.
+- **Constraint scope, and replication into the chunks a constraint governs.** A rule the user stated
+  in chunk 2 governs chunk 30 by arithmetic rather than by a model remembering to re-emit it in each
+  of the 28 calls between.
+- **A deterministic post-compaction verifier** (S5): every constraint found is checked against the
+  state the fold produced, restored if it was dropped, and reported if it could not be. The front
+  matter and `report.json` carry `triage: {constraints, preserved, restored, missing}`.
+- `sctxx` now reports fold progress per chunk on stderr. A 40-chunk fold against a real backend runs
+  for hours and previously printed nothing between "40 chunk(s) to fold" and the end; a silent
+  terminal for ninety minutes is indistinguishable from a hang.
+
+### Fixed
+
+- **L0 could drop the whole Hard-constraints block silently.** The budget helper returns early when a
+  block does not fit, which discarded all 40 constraints in one piece with no marker, making a run
+  that found them indistinguishable from one that did not. The mandatory blocks — the notice that no
+  model ran, the contradictions, and the user's instructions — now spend the budget first and are
+  never refused.
+- **`--budget` did not bound L0.** `--budget 400` emitted a 1,200-token brief: the brief had its own
+  fixed ceiling and three of its blocks were charged to no budget at all.
+- Rendering a value the ledger had already truncated produced nested markers — `…/scripts/…44 tokens
+  truncated…/build.mjs` — describing a truncation the reader cannot see, inside a line that was then
+  truncated again. Text is now cut at the first marker.
+- The "no model ran" notice said there was *no* extracted state, which stopped being true once the
+  deterministic typed layer existed; it now says what is missing and why.
+
+### Changed
+
+- The decision and its measurements are in `docs/adr/0008-deterministic-typed-layer.md`, with the
+  external evidence in `docs/research/2026-09-11-paper-knowledge-triage-typecompact.md`. **The layer
+  is a floor, not a solution, and the artifact says so where a reader would otherwise over-trust it:**
+  on the real 274-turn session it finds one constraint, and a rule stated declaratively is invisible
+  to it.
+
 ### Fixed
 
 - **L0 was a repository diff where it should have been a briefing.** On a real 103k-event session the

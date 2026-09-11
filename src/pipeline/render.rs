@@ -94,6 +94,12 @@ pub struct RenderOptions {
     /// Tokens this artifact costs. `Extraction::markdown` fills it from a first
     /// pass, so the header can state its own size.
     pub artifact_tokens: usize,
+    /// The deterministic typed layer: standing instructions found by pattern.
+    /// Rendered with its provenance and with what it cannot see, because a
+    /// section labelled "binding" that was produced by a regex has to say so.
+    pub triage: Option<crate::pipeline::triage::Triage>,
+    /// What became of each of those constraints between extraction and here.
+    pub guard: crate::pipeline::triage::GuardReport,
 }
 
 impl Default for RenderOptions {
@@ -107,6 +113,8 @@ impl Default for RenderOptions {
             end_state: None,
             redact: RedactMode::Default,
             masked_tokens: 0,
+            triage: None,
+            guard: crate::pipeline::triage::GuardReport::default(),
             artifact_tokens: 0,
         }
     }
@@ -235,6 +243,19 @@ fn front_matter(artifact: &Artifact<'_>) -> String {
         "semantic: {}\n",
         artifact.options.semantic.label()
     ));
+    if let Some(triage) = artifact.options.triage.as_ref() {
+        let guard = &artifact.options.guard;
+        out.push_str(&format!(
+            "triage: {{constraints: {}, preserved: {}, restored: {}, missing: {}, \
+             messages: {}, above_cap: {}}}\n",
+            guard.found,
+            guard.preserved,
+            guard.restored,
+            guard.missing.len(),
+            triage.messages,
+            triage.dropped,
+        ));
+    }
     out.push_str(&format!("prompts: {{{}}}\n", prompts.join(", ")));
     out.push_str(&format!(
         "verification: {{repo: {}, head: {}, commits_since_session: {}, stale: {}, contradicted: {}}}\n",
@@ -270,13 +291,29 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
     let ledgers = artifact.ledgers;
     let mut out = String::from("\n## L0 · Brief\n\n");
 
+    // `--budget` bounds the artifact and L0 is part of it. Three blocks are
+    // charged to it *first* and never refused, because an artifact that fits its
+    // budget by deleting them is not smaller, it is wrong:
+    //
+    //   the notice that no model ran, the evidence that contradicts the handoff,
+    //   and the user's own standing instructions.
+    //
+    // They spend from the top, so the optional content — what the session did,
+    // where the work was, the arc, the derived next actions — is what a tight
+    // budget trims. If the mandatory blocks alone exceed the budget the artifact
+    // exceeds it, visibly: the alternative is a briefing that does not mention
+    // that its semantic layer is missing.
+    let mut budget = BRIEF_BUDGET.min(artifact.options.budget);
+
     // Before any content, because a reader who acts on an empty state as though
     // it were a full one is worse off than one who was told.
     if let Some(notice) = artifact.options.semantic.notice() {
+        let mut block = String::new();
         for line in notice.lines() {
-            out.push_str(&format!("> {line}\n"));
+            block.push_str(&format!("> {line}\n"));
         }
-        out.push('\n');
+        block.push('\n');
+        spend_priority(&mut out, block, &mut budget);
     }
 
     // What the evidence says that the state does not, before the goal: a reader
@@ -284,15 +321,18 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
     if let Some(end) = artifact.options.end_state.as_ref()
         && !end.findings.is_empty()
     {
-        out.push_str("**Before you act — the evidence contradicts this handoff:**\n");
+        let mut block =
+            String::from("**Before you act — the evidence contradicts this handoff:**\n");
         for finding in &end.findings {
-            out.push_str(&format!("- *{}*: {}\n", finding.kind.label(), finding.text));
+            block.push_str(&format!("- *{}*: {}\n", finding.kind.label(), finding.text));
         }
-        out.push('\n');
+        block.push('\n');
+        spend_priority(&mut out, block, &mut budget);
     }
 
-    let mut budget = BRIEF_BUDGET;
-
+    // `--budget` bounds the artifact and L0 is part of it, so the brief takes the
+    // smaller of its own ceiling and what the caller allowed. Before this, a
+    // `--budget 400` run still emitted a 1,200-token brief.
     let push = |out: &mut String, text: String, budget: &mut usize| {
         let cost = approx_token_count(&text);
         if cost > *budget {
@@ -336,6 +376,15 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
             &mut budget,
         );
     }
+
+    // Hard constraints come before everything except the contradictions and the
+    // goal, and they are never dropped whole. Two separate defects lived here:
+    // the section was empty whenever no model ran, because only the fold could
+    // create a constraint; and when it was not empty, a block that overran the
+    // remaining budget was discarded in its entirety by `push` above, silently,
+    // while the artifact's own preamble went on telling its reader to treat the
+    // section as binding.
+    render_constraints(&mut out, artifact, &mut budget);
 
     // What the session *did*. All of this is already in the ledgers and none of it
     // was reaching L0: a reader was told which files had gone missing since and
@@ -442,22 +491,6 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
                 one_line(&resolution.text, 160),
                 resolution.command,
                 resolution.evt
-            ));
-        }
-        block.push('\n');
-        push(&mut out, block, &mut budget);
-    }
-
-    let constraints = state.active_of(ItemKind::Constraint);
-    if !constraints.is_empty() {
-        let mut block = String::from("**Hard constraints** (binding user instructions)\n");
-        for item in &constraints {
-            let quote = item.quote.as_deref().unwrap_or(&item.text);
-            block.push_str(&format!(
-                "- ({}) \"{}\" {}\n",
-                item.id,
-                quote,
-                item.provenance()
             ));
         }
         block.push('\n');
@@ -887,6 +920,80 @@ fn item_line(item: &Item) -> String {
 /// history of 548 touched files is not the thing an agent needs before it starts.
 /// This is the small, current subset: what the work *is*, what is open right now,
 /// and what to run. The full ledgers follow it, and stay retrievable.
+/// Tokens the constraints block may spend before it starts summarising itself.
+///
+/// The block is capped rather than deferring to the whole-brief budget: a brief
+/// that silently loses its binding instructions is the failure this whole layer
+/// exists to prevent, so an overflow is made visible instead (`… and N more`).
+const CONSTRAINT_BUDGET: usize = 700;
+
+/// Render the deterministic hard lane, and say what it is.
+fn render_constraints(out: &mut String, artifact: &Artifact<'_>, budget: &mut usize) {
+    let constraints = artifact.state.active_of(ItemKind::Constraint);
+    if constraints.is_empty() {
+        return;
+    }
+    let mut block = String::from("**Hard constraints** (standing instructions, quoted verbatim)\n");
+    let mut cost = approx_token_count(&block);
+    let mut shown = 0usize;
+    for item in &constraints {
+        let quote = item.quote.as_deref().unwrap_or(&item.text);
+        let line = format!("- ({}) \"{}\" {}\n", item.id, quote, item.provenance());
+        let line_cost = approx_token_count(&line);
+        if shown > 0 && cost + line_cost > CONSTRAINT_BUDGET.min(*budget) {
+            break;
+        }
+        cost += line_cost;
+        block.push_str(&line);
+        shown += 1;
+    }
+    if shown < constraints.len() {
+        // Named, not silently omitted: the reader can reach them in L1 and the
+        // count tells them how much of the section they are not seeing.
+        block.push_str(&format!(
+            "- \u{2026} and {} more (see L1 \u{b7} Active workset)\n",
+            constraints.len() - shown
+        ));
+    }
+    block.push('\n');
+
+    // What this section cannot see. A regex found these; a rule stated
+    // declaratively — "the schema is frozen until the migration lands" — is not
+    // here, and a reader who does not know that reads silence as permission.
+    if artifact.options.semantic == crate::pipeline::SemanticState::NotRequested {
+        block.push_str(
+            "> Found by pattern, not by model: no model ran, so a rule stated declaratively is \
+             absent rather than absent-minded. Treat a missing rule as unknown, not as permission.\
+             \n",
+        );
+    }
+    let restored = artifact.options.guard.restored;
+    if restored > 0 {
+        block.push_str(&format!(
+            "> {restored} constraint(s) were dropped by the semantic pass and put back here.\n"
+        ));
+    }
+    if !artifact.options.guard.is_clean() {
+        block.push_str(&format!(
+            "> {} constraint(s) could not be restored; see report.json.\n",
+            artifact.options.guard.missing.len()
+        ));
+    }
+    block.push('\n');
+
+    spend_priority(out, block, budget);
+}
+
+/// Spend from the budget without ever refusing.
+///
+/// Everything else in the brief goes through `push`, which drops a block that
+/// does not fit. These blocks are the ones a reader cannot do without, so they
+/// take the space and leave the remainder to the optional content.
+fn spend_priority(out: &mut String, text: String, budget: &mut usize) {
+    *budget = budget.saturating_sub(approx_token_count(&text));
+    out.push_str(&text);
+}
+
 fn render_workset(artifact: &Artifact<'_>) -> String {
     // A summary only helps when there is something to summarise. Under a very
     // small budget the full ledger below is already short, so the workset would
@@ -1281,7 +1388,39 @@ fn one_line(text: &str, max_bytes: usize) -> String {
     // indented table both arrive with columns of spaces, and a quoted line that
     // keeps them reads as damage.
     let single = text.split_whitespace().collect::<Vec<&str>>().join(" ");
-    crate::vendor::codex::truncate::truncate_middle_bytes(&single, max_bytes)
+    crate::vendor::codex::truncate::truncate_middle_bytes(&strip_truncations(&single), max_bytes)
+}
+
+/// Remove truncation markers left by an earlier pass.
+///
+/// A ledger value was already shortened when it was recorded, so rendering it
+/// again produced text like `…/scripts/…44 tokens truncated…/build.mjs`: a marker
+/// that describes a truncation the reader cannot see, inside a line that was
+/// then truncated again. Cut at the first marker instead and keep one ellipsis.
+fn strip_truncations(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('\u{2026}') {
+        let after = &rest[open + '\u{2026}'.len_utf8()..];
+        // `…N tokens truncated…` or `…N bytes truncated…`
+        let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+        let marker = format!("{digits} tokens truncated\u{2026}");
+        let marker_bytes = format!("{digits} bytes truncated\u{2026}");
+        if after.starts_with(&marker) {
+            out.push_str(&rest[..open]);
+            out.push('\u{2026}');
+            return out;
+        }
+        if after.starts_with(&marker_bytes) {
+            out.push_str(&rest[..open]);
+            out.push('\u{2026}');
+            return out;
+        }
+        out.push_str(&rest[..open + '\u{2026}'.len_utf8()]);
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The machine-readable artifact (`handoff.json`, schema `sctxx.handoff/v1`).

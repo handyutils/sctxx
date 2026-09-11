@@ -9,6 +9,7 @@ source: <normalized>
 mode: standard
 llm: none
 semantic: not_requested
+triage: {constraints: 1, preserved: 1, restored: 0, missing: 0, messages: 2, above_cap: 0}
 prompts: {fold_system: 1, fold_user: 2, premap: 1, final_pass: 1, repair: 1, handoff_preamble: 1}
 verification: {repo: none, head: none, commits_since_session: 0, stale: 0, contradicted: 0}
 tokens: <normalized>
@@ -24,9 +25,14 @@ tokens: <normalized>
 
 ## L0 · Brief
 
-> No model ran, so there is no extracted state: no goals, constraints, decisions, dead ends or current step — only what deterministic passes can prove. That is the cheap artifact, and it is evidence rather than understanding. For the semantic layer: `sctxx extract <ref> --llm cli:<agent>`.
+> No model ran. There is no model-written state: no goals, decisions, dead ends or current step, and only the standing instructions a pattern could find — a rule stated declaratively is absent rather than absent-minded. What follows is evidence rather than understanding. For the semantic layer: `sctxx extract <ref> --llm cli:<agent>`.
 
 **Goal** (from the first user message, not model-inferred): Export durable items to lat.md sections. Do not touch the parser. [evt 0]
+
+**Hard constraints** (standing instructions, quoted verbatim)
+- (C1) "Do not touch the parser" [evt 0]
+
+> Found by pattern, not by model: no model ran, so a rule stated declaratively is absent rather than absent-minded. Treat a missing rule as unknown, not as permission.
 
 **Last user request**: the second section is being swallowed, look at the delimiter [evt 6]
 
@@ -43,6 +49,9 @@ tokens: <normalized>
 
 
 ## L1 · Items
+
+### Constraints
+- C1 · high — Do not touch the parser · quote: "Do not touch the parser" · *why*: stated by the user; matched negative directive, untouchable [evt 0]
 
 ### Active workset
 

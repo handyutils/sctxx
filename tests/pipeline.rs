@@ -142,10 +142,28 @@ fn the_deterministic_artifact_is_complete_without_any_model() {
     let extraction = extract("claude/basic.jsonl", &options);
     let markdown = extraction.markdown(&options);
 
-    // No model ran.
+    // No model ran. The state is no longer empty — the deterministic typed layer
+    // seeds it before any backend is chosen — so the assertion is that nothing
+    // in it came from a model, which is the property that was actually meant.
     assert_eq!(extraction.llm_label, "none");
-    assert!(extraction.state.items.is_empty());
     assert_eq!(extraction.report.fold_calls, 0);
+    for item in &extraction.state.items {
+        assert!(
+            item.why
+                .as_deref()
+                .is_some_and(|why| why.starts_with("stated by the user")),
+            "a model-written item appeared with no model: {item:?}"
+        );
+    }
+    // And the standing instruction the user gave is one of them.
+    assert!(
+        extraction
+            .state
+            .active_of(sctxx::pipeline::fold::ops::ItemKind::Constraint)
+            .iter()
+            .any(|item| item.text.contains("Never auto-install extensions")),
+        "the user's rule is missing:\n{markdown}"
+    );
 
     // And yet the artifact answers the questions that matter.
     assert!(markdown.contains("manifest loader"), "no goal:\n{markdown}");
@@ -399,9 +417,24 @@ fn the_artifact_stays_inside_its_budget() {
     let markdown = extraction.markdown(&options);
     // L2 is governed by --tail, so measure everything before it.
     let head = markdown.split("## L2").next().unwrap_or(&markdown);
+    // The front matter and the preamble state what the artifact is and are not
+    // budgeted. L0 carries three blocks that are charged to the budget *first*
+    // and never refused — the notice that no model ran, the contradictions, and
+    // the user's own instructions — so L0 is bounded by the budget plus those
+    // blocks, and L1 spends what is left.
+    let l0 = markdown
+        .split("## L0")
+        .nth(1)
+        .and_then(|rest| rest.split("## L1").next())
+        .unwrap_or("");
+    assert!(
+        l0.len() / 4 <= 400 + 250,
+        "L0 used {} tokens against a 400 budget plus its mandatory blocks",
+        l0.len() / 4
+    );
     let tokens = head.len() / 4;
     assert!(
-        tokens <= 400 + 400,
+        tokens <= 1_000,
         "L0+L1 used {tokens} tokens against a 400 budget"
     );
 }
