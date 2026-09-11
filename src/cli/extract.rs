@@ -21,7 +21,13 @@ pub struct ExtractArgs {
     mode: String,
 
     /// Backend: none, auto, cli:<agent>, api:<provider>[/<model>], or mock.
-    #[arg(long, default_value = "auto")]
+    ///
+    /// `none` is the default because the deterministic artifact is complete —
+    /// every pointer, every ledger, the recency tail — and the fold costs real
+    /// tokens: on a 103k-event session, 41 fold calls and 40 premap calls, about
+    /// 813,000 input tokens. A tool whose promise is verified compaction should
+    /// not spend that unless asked to (ADR 0007).
+    #[arg(long, default_value = "none")]
     llm: String,
 
     /// Artifact token budget, excluding the recency tail.
@@ -116,22 +122,16 @@ pub struct ExtractArgs {
 impl ExtractArgs {
     /// The clap definition of `sctxx extract`.
     ///
-    /// Feature-gated because only the TUI reads a command definition back; the
-    /// command line is one already. The minimal build must stay free of code
-    /// that exists for a feature it does not have.
-    ///
     /// The TUI's extraction form is built from *this*, not from a list of its
     /// own, which is what stops the form and the CLI from drifting apart
     /// (SC-004). Anything the form can express arrives here as argv and is
     /// parsed by clap, so the CLI stays the only authority on what is valid.
-    #[cfg(feature = "tui")]
     pub fn command() -> clap::Command {
         <Self as clap::Args>::augment_args(clap::Command::new("extract"))
     }
 
     /// Parse an argv the way the command line would, for callers that assemble
     /// one rather than receiving it.
-    #[cfg(feature = "tui")]
     pub fn parse_argv<I, T>(argv: I) -> Result<Self>
     where
         I: IntoIterator<Item = T>,
@@ -142,6 +142,17 @@ impl ExtractArgs {
             .map_err(|error| Error::Usage(error.to_string()))?;
         <Self as clap::FromArgMatches>::from_arg_matches(&matches)
             .map_err(|error| Error::Usage(error.to_string()))
+    }
+
+    /// The options a handoff runs with: deterministic, because the
+    /// deterministic artifact already carries every `[evt a–b]` pointer, every
+    /// ledger, and the recency tail — which is what a receiving agent needs —
+    /// and it costs no tokens.
+    ///
+    /// Both callers use this: the TUI's `h`, and `sctxx handoff`. One
+    /// definition, so the two cannot disagree about what a handoff costs.
+    pub fn deterministic(global: &GlobalArgs, reference: &str) -> Result<ExtractOptions> {
+        Self::parse_argv(["sctxx", "--llm", "none", reference])?.options(global)
     }
 
     /// Validate the arguments and turn them into pipeline options.
@@ -312,8 +323,16 @@ fn dry_run(
             .unwrap_or_else(|| "none (nothing detected)".to_string()),
         other => other.to_string(),
     };
-    let calls = plan.chunks.len() + usize::from(!plan.tail.is_empty());
-    let premap = if plan.chunks.len() > 4 {
+    // What *this* run will call, not what a fold would call. Reporting the
+    // latter under `--llm none` would overstate the cost of the run being
+    // planned — and this number is exactly what someone uses to decide.
+    let will_fold = !matches!(options.llm, Selection::None);
+    let calls = if will_fold {
+        plan.chunks.len() + usize::from(!plan.tail.is_empty())
+    } else {
+        0
+    };
+    let premap = if will_fold && plan.chunks.len() > 4 {
         plan.chunks.len()
     } else {
         0
@@ -335,7 +354,11 @@ fn dry_run(
         "llm": backend,
         "planned_fold_calls": calls,
         "planned_premap_calls": premap,
-        "estimated_prompt_tokens": plan.chunk_tokens() + extraction.report.tokens.tail,
+        "estimated_prompt_tokens": if will_fold {
+            plan.chunk_tokens() + extraction.report.tokens.tail
+        } else {
+            0
+        },
     });
 
     if global.json {

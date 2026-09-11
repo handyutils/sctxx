@@ -879,3 +879,168 @@ fn update_check_reports_the_cargo_command_and_runs_nothing() {
         stderr_of(&output)
     );
 }
+
+/// A fake agent CLI that reports the version the seeding channel was verified
+/// on, so the plan path can be tested on a machine that has no agents at all.
+#[cfg(unix)]
+fn fake_agent_dir(version: &str) -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let program = dir.path().join("claude");
+    std::fs::write(
+        &program,
+        format!("#!/bin/sh\necho '{version} (Claude Code)'\n"),
+    )
+    .expect("write");
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    dir
+}
+
+#[test]
+fn handoff_answers_who_could_continue_a_session() {
+    // The question worth being able to ask without having decided yet. This is
+    // what the TUI's picker shows, for a caller that is not a person.
+    let output = sctxx()
+        .args(["handoff"])
+        .arg(fixtures().join("claude/basic.jsonl"))
+        .arg("--json")
+        .output()
+        .expect("run");
+    assert!(output.status.success(), "{}", stderr_of(&output));
+
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout_of(&output)).expect("stdout is one JSON object");
+    assert!(
+        value["session"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("claude:"),
+        "{value}"
+    );
+    assert!(value["agents"].is_array(), "{value}");
+    assert!(
+        value["session_path"].is_string(),
+        "a caller needs the file too: {value}"
+    );
+}
+
+#[test]
+fn handoff_refuses_an_agent_it_cannot_launch() {
+    let output = sctxx()
+        .args(["handoff"])
+        .arg(fixtures().join("claude/basic.jsonl"))
+        .args(["--to", "definitely-not-an-agent"])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stdout={} stderr={}",
+        stdout_of(&output),
+        stderr_of(&output)
+    );
+    assert!(
+        stdout_of(&output).trim().is_empty(),
+        "a refusal is not payload: {}",
+        stdout_of(&output)
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("definitely-not-an-agent") && stderr.contains("claude"),
+        "the refusal must name what is available: {stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn handoff_plans_a_real_command_without_running_it() {
+    let agents = fake_agent_dir("2.1.268");
+    let out = tempfile::tempdir().expect("tempdir");
+    let path = format!(
+        "{}:{}",
+        agents.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let output = sctxx()
+        .env("PATH", path)
+        .args(["handoff"])
+        .arg(fixtures().join("claude/basic.jsonl"))
+        .args(["--to", "claude", "--json", "--out"])
+        .arg(out.path())
+        .output()
+        .expect("run");
+    assert!(output.status.success(), "{}", stderr_of(&output));
+
+    let value: serde_json::Value = serde_json::from_str(&stdout_of(&output)).expect("json");
+    assert_eq!(value["agent"], "claude");
+    assert_eq!(value["ran"], false, "planning never launches");
+    assert_eq!(value["fallback"], false, "2.1.268 is the verified version");
+    assert!(
+        value["program"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("claude"),
+        "{value}"
+    );
+    let argv = value["argv"].as_array().expect("argv");
+    assert_eq!(argv[0], "--append-system-prompt-file");
+    assert!(
+        argv[1].as_str().unwrap_or_default().ends_with("handoff.md"),
+        "the artifact travels as a path: {argv:?}"
+    );
+    assert!(
+        value["cwd"].as_str().is_some(),
+        "a caller needs to know where to start it: {value}"
+    );
+
+    // And the artifact is really there, because the plan is not a promise.
+    let artifact = value["artifact"].as_str().expect("artifact");
+    assert!(Path::new(artifact).is_file(), "{artifact}");
+
+    // Asking again reuses it rather than redoing the extraction.
+    let again = sctxx()
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                agents.path().display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .args(["handoff"])
+        .arg(fixtures().join("claude/basic.jsonl"))
+        .args(["--to", "claude", "--json", "--out"])
+        .arg(out.path())
+        .output()
+        .expect("run");
+    let value: serde_json::Value = serde_json::from_str(&stdout_of(&again)).expect("json");
+    assert_eq!(
+        value["reused"], true,
+        "an artifact for this session is reused"
+    );
+}
+
+#[test]
+fn extract_is_deterministic_unless_a_model_is_asked_for() {
+    // The default that used to spend 813,000 tokens on a large session without
+    // saying so.
+    let output = sctxx()
+        .args(["extract"])
+        .arg(fixtures().join("claude/basic.jsonl"))
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run");
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    let value: serde_json::Value = serde_json::from_str(&stdout_of(&output)).expect("json");
+    assert_eq!(
+        value["llm"], "none",
+        "the default must not call a model: {value}"
+    );
+    assert_eq!(value["planned_fold_calls"], 0, "{value}");
+    assert_eq!(value["planned_premap_calls"], 0, "{value}");
+    assert_eq!(
+        value["estimated_prompt_tokens"], 0,
+        "nothing is sent, so nothing is estimated: {value}"
+    );
+}

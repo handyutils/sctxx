@@ -323,6 +323,47 @@ task says which library function is being wrapped, not reimplemented.
   - Acceptance: `--tui` documented with its TTY requirement and its feature gate; the keymap in the docs
     matches `?`; the website gains the pane; `gen-skill` is re-run rather than hand-edited
 
+## From review feedback 1 (2026-09-11)
+
+The provenance half of [`REVIEW_FEEDBACK_1.md`](../../docs/REVIEW_FEEDBACK_1.md) is answered by
+[`CODEX-PROVENANCE-AUDIT.md`](../../docs/CODEX-PROVENANCE-AUDIT.md) and ticket 15. These are its
+engineering asks, which are about the artifact rather than about provenance.
+
+- [ ] **T2422** [FR-016] End-state reconciliation is authoritative
+  - Why: `CurrentStep` and `NextAction` must be produced only *after* the recency tail and the
+    last-known command and git state are consumed, and an action followed by success must resolve
+    automatically. The review calls this the single rule that would have prevented the largest error
+    in the artifact it examined
+  - Depends on: T2410
+  - Acceptance: a next-action whose command later succeeded is not rendered as pending; the final pass
+    is the only writer of current-step state
+
+- [ ] **T2423** [FR-009] Cross-check L0 against L2 mechanically
+  - Why: before rendering, ask whether the tail contains evidence later than a proposed next action
+    that indicates success, replacement, or a changed direction. The review notes this needs no model
+    call
+  - Depends on: T2422
+  - Acceptance: a contradiction between L0 and L2 is either resolved or reported in the artifact; on
+    the session that prompted the review, the check fires
+
+- [ ] **T2424** [FR-009] Separate the historical ledger from the active workset in L1
+  - Why: "548 more files touched" and dozens of historical errors are forensics, not the first thing an
+    agent needs. The review's most concrete product suggestion
+  - Acceptance: L1 leads with an **Active Workset** — relevant spec, latest touched files, current
+    dirty files, latest relevant test, latest commits, currently unresolved errors — with the historical
+    ledger kept and retrievable
+  - Note: `/Users/musichen/.claude/projects/` — the artifact this was written from reports 18 uncommitted
+    changes and 86 missing files, neither of which appears in L0 or L1 today
+
+- [ ] **T2425** [FR-009] Goal evolves; stale counts and provider summaries are warnings, not metadata
+  - Why: three separate asks from the review that share a cause — the header knows things the brief does
+    not say. L0's goal on a ten-day session is provenance, not the active objective; a `stale: 100`
+    header line is a first-class warning; and Claude's own compaction summary is often the highest-value
+    semantic object in a long session, currently buried in L2
+  - Acceptance: `Original goal` is kept as provenance and the active goal comes from folded state; a
+    large stale/contradicted count is stated in L0; each provider compaction summary is surfaced in L0
+    as a **low-trust** seed with its event pointer, and corroborated against deterministic evidence
+
 ## Out of scope for this block
 
 - **T2415 (an embedded terminal pane) — superseded by ADR 0006.** The launched agent is itself a

@@ -130,6 +130,23 @@ sctxx update                   # update the way you installed it (npm or cargo, 
 cargo binstall sctxx           # prebuilt binary via cargo
 ```
 
+### The main line
+
+Get one agent's session into another agent:
+
+```sh
+sctxx handoff last --to claude            # extract the context and print the command
+sctxx handoff last --to claude --run      # ...and start the agent with it loaded
+sctxx handoff last --json                 # who could continue this session?
+```
+
+It is **deterministic**: no model, no tokens, seconds. The artifact carries every `[evt a-b]` pointer,
+every ledger, and the recency tail, and the receiving agent follows pointers with `sctxx expand`.
+`--llm cli:claude` asks for the model-written fold, which is a choice: on a 100k-event session that is
+41 fold calls plus 40 premap calls.
+
+The same thing with two keystrokes: `sctxx --tui`, pick a session, press `h`.
+
 The npm package is a shim: it depends on a per-platform package containing the binary, so `npm i -g
 sctxx` needs no Rust toolchain. On an unsupported platform it says so and points at `cargo install`
 rather than failing the install. See [`npm/README.md`](npm/README.md).
@@ -182,7 +199,7 @@ resume, incremental updates, host mode, and an MCP server (M6).
 ## Licence and provenance
 
 Apache-2.0. Includes code derived from [OpenAI Codex](https://github.com/openai/codex)
-(Apache-2.0) at commit `818f1cc`: UTF-8-safe truncation, secret redaction, tiered evidence
+(Apache-2.0) at commit `818f1cc`: UTF-8-safe truncation, secret redaction, evidence tiering
 budgeting, rollback-aware replay, and the `apply_patch` header grammar. Each ported file carries
 its attribution header; [`src/vendor/codex/README.md`](src/vendor/codex/README.md) is the
 manifest. sctxx is not affiliated with or endorsed by OpenAI or Anthropic.

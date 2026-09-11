@@ -46,7 +46,7 @@ We read that codebase and took the five things that matter for context extractio
 
 | What we ported | Where it comes from upstream | Why it matters to you |
 |---|---|---|
-| **Tiered evidence budgeting** | `codex-rs/memories/write/src/rollout_input.rs` (`serialize_tiered_input`) | Fills a token budget by *priority tier* (human turns first, then finals, agent messages, commentary, context, tool output), newest-first within each tier, then renders survivors in source order with explicit `[... omitted ...]` gaps. Tool output capped at 2,000 tokens, rows at 10,000 bytes. This is why a 300 MB session fits in a prompt without losing what a human said. |
+| **Evidence tiering** | `codex-rs/memories/write/src/rollout_input.rs` (`serialize_tiered_input`) | Codex's priority order — human turns first, then finals, agent messages, commentary, context, tool output — with tool output capped and rows byte-capped. `sctxx` uses that ordering to classify rows, and cuts the recency tail at an **episode boundary** rather than by tiered fill. We ported the tiered *selector* too and it is not wired in yet ([audit](https://github.com/handyutils/sctxx/blob/main/docs/CODEX-PROVENANCE-AUDIT.md), [ticket 15](https://github.com/handyutils/sctxx/blob/main/specs/000-wayfinding/issues/15-tiered-selection-is-unreachable.md)); we would rather say so than let a table imply otherwise. |
 | **Rollback-aware replay** | `codex-rs/core/src/session/rollout_reconstruction.rs` | `ThreadRolledBack { num_turns }` means the newest N user turns were undone. Replaying that correctly is the difference between summarising work that still exists and summarising work the developer deleted. On one real session this put 6,753 of 14,151 events on the live branch. |
 | **UTF-8-safe truncation + the 4-bytes-per-token estimate** | `codex-rs/utils/string/src/truncate.rs` | Every budget, cap, and truncation in `sctxx` uses one shared, byte-safe primitive. No tokenizer dependency, no panics on a multi-byte boundary, no two components disagreeing about how big something is. |
 | **Secret redaction** | `codex-rs/secrets/src/sanitizer.rs` | Their pattern set (`sk-…`, `AKIA…`, `Bearer …`, `key=value`), extended with Anthropic, GitHub, Slack, Stripe, Google keys, JWTs, PEM blocks, and connection strings. Runs before any model sees the transcript, again on the model's answer, again on the artifact. |
@@ -56,7 +56,10 @@ Two of our prompts are derived the same way: `fold_system.md` from Codex's memor
 `memories/write/templates/memories/stage_one_system.md`, and `handoff_preamble.md` from the compaction
 handoff prefix `prompts/templates/compact/summary_prefix.md`.
 
-**We also learned from their compaction design.** Codex has three compaction paths — local
+**We also learned from their compaction design — and we do not claim to have extracted it.**
+Codex has no single local compaction algorithm to extract: there is a dispatcher over four strategies,
+and one of them runs on OpenAI's servers. What we took from it is the *shape* of retention and the
+meaning of a `compacted` marker. Codex has three compaction paths — local
 summarisation, server-side v2, and a token-budget path that skips summarisation entirely and rebuilds
 the window from canonical context plus retained evidence. Reading them gave us two things `sctxx`
 would otherwise have got wrong: that a provider's `compacted` marker means *either* "history was

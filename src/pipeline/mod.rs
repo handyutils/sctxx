@@ -132,12 +132,102 @@ pub struct Report {
     pub repair_calls: usize,
     pub accepted_ops: usize,
     pub rejected_ops: usize,
+    /// Whether the model-written layer is in the artifact, and why not.
+    pub semantic_state: SemanticState,
+    pub fold_failed_calls: usize,
     pub llm_input_tokens: u64,
     pub llm_output_tokens: u64,
     pub warnings: Vec<String>,
     pub diagnostics: Vec<crate::ir::Diagnostic>,
     pub verification: reconcile::Reconciliation,
     pub elapsed_ms: u128,
+}
+
+/// What an empty semantic layer means, given how the fold went.
+///
+/// A separate function because this is the judgement that was wrong: 81 failed
+/// calls, zero items, and an artifact that rendered as an ordinary standard
+/// handoff.
+pub fn classify_semantic(report: &fold::FoldReport) -> SemanticState {
+    if report.calls == 0 {
+        return SemanticState::NotRequested;
+    }
+    if report.failed_calls == report.calls {
+        // Every call failed, so there was never a semantic pass to lose.
+        return SemanticState::Unavailable;
+    }
+    if report.accepted_ops == 0 {
+        // The calls worked and produced nothing usable. A different problem, and
+        // a different thing to tell the reader.
+        return SemanticState::Degraded;
+    }
+    SemanticState::Ok
+}
+
+/// Whether the model-written semantic layer is actually in the artifact.
+///
+/// The deterministic artifact is complete on its own — every `[evt a–b]`
+/// pointer, every ledger, the recency tail — but a *standard-mode* artifact
+/// renders sections (hard constraints, current step, decisions, open threads)
+/// that only the fold can fill. An empty semantic layer therefore has to be
+/// distinguishable from a session that genuinely had nothing to say, and from a
+/// run where a model was never asked. Rendering all three the same way is how a
+/// run in which every model call failed came to look like a normal handoff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticState {
+    /// No model was asked for. The deterministic artifact is the product.
+    NotRequested,
+    /// The fold produced items.
+    Ok,
+    /// The fold ran and produced nothing usable.
+    Degraded,
+    /// Every model call failed, so there is no semantic layer at all.
+    Unavailable,
+}
+
+/// Serialised as its label, so `report.json` says `"semantic_state":
+/// "unavailable"` rather than an enum shape a reader has to know.
+impl serde::Serialize for SemanticState {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.label())
+    }
+}
+
+impl SemanticState {
+    pub fn label(self) -> &'static str {
+        match self {
+            SemanticState::NotRequested => "not_requested",
+            SemanticState::Ok => "ok",
+            SemanticState::Degraded => "degraded",
+            SemanticState::Unavailable => "unavailable",
+        }
+    }
+
+    /// What a reader of the artifact must be told, when it is not `Ok`.
+    pub fn notice(self) -> Option<&'static str> {
+        match self {
+            // No notice: this is the ordinary path now, the front matter already
+            // says `semantic: not_requested`, and L0 renders the deterministic
+            // brief rather than empty sections. A warning on the normal path is
+            // noise, and noise is how warnings stop being read.
+            SemanticState::NotRequested => None,
+            SemanticState::Ok => None,
+            SemanticState::Degraded => Some(
+                "The model-written state is EMPTY. The fold ran and produced no items, so the \
+                 sections it would fill are absent rather than empty. Read the ledgers and the \
+                 recency tail, and verify against the repository before acting.",
+            ),
+            SemanticState::Unavailable => Some(
+                "The model-written state is UNAVAILABLE: every model call failed. What follows \
+                 is the deterministic artifact — ledgers, pointers and the recency tail — which \
+                 is complete for following the evidence, but nothing here was summarised by a \
+                 model. Read the tail before acting.",
+            ),
+        }
+    }
 }
 
 /// The result of an extraction.
@@ -197,6 +287,9 @@ impl Extraction {
             layers: options.layers,
             mode: options.mode.label(),
             llm: self.llm_label.clone(),
+            // The artifact says whether the model-written layer is there, so a
+            // reader never has to infer it from absent sections.
+            semantic: self.report.semantic_state,
             redact: options.redact,
             // The header reports what the whole session costs as a masked
             // transcript; only the pipeline knows that number.
@@ -412,6 +505,10 @@ pub fn extract_interruptible(
         Some(backend) => backend.name(),
         None => "none".to_string(),
     };
+    // Whether the semantic layer is really there. Decided after the fold, and
+    // carried into the artifact so a reader is never shown an empty state as if
+    // it were a full one.
+    let mut semantic = SemanticState::NotRequested;
 
     if let Some(backend) = &backend {
         if plan.chunks.is_empty() && plan.tail.is_empty() {
@@ -447,6 +544,27 @@ pub fn extract_interruptible(
             let (folded, report) = fold::run(&input, backend.as_ref(), &fold_options)?;
             state = folded;
             fold_report = report;
+
+            semantic = classify_semantic(&fold_report);
+            if matches!(
+                semantic,
+                SemanticState::Degraded | SemanticState::Unavailable
+            ) {
+                let detail = fold_report
+                    .warnings
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("no reason reported");
+                progress(
+                    "semantic",
+                    &format!(
+                        "{} of {} model calls failed; the model-written state is {}. First failure: {detail}",
+                        fold_report.failed_calls,
+                        fold_report.calls,
+                        semantic.label()
+                    ),
+                );
+            }
             progress(
                 "fold",
                 &format!(
@@ -518,6 +636,8 @@ pub fn extract_interruptible(
         repair_calls: fold_report.repair_calls,
         accepted_ops: fold_report.accepted_ops,
         rejected_ops: fold_report.rejected_ops,
+        semantic_state: semantic,
+        fold_failed_calls: fold_report.failed_calls,
         llm_input_tokens: fold_report.input_tokens,
         llm_output_tokens: fold_report.output_tokens,
         warnings: fold_report.warnings,
@@ -674,5 +794,72 @@ mod tests {
         let mut never_compacted = session.clone();
         never_compacted.native_compactions.clear();
         assert_eq!(since_compact_boundary(&never_compacted), None);
+    }
+}
+
+#[cfg(test)]
+mod semantic_tests {
+    use super::*;
+
+    fn report(calls: usize, failed: usize, accepted: usize) -> fold::FoldReport {
+        fold::FoldReport {
+            calls,
+            failed_calls: failed,
+            accepted_ops: accepted,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_run_in_which_every_call_failed_is_unavailable_not_ordinary() {
+        // The bug: 81 failed calls and an empty state rendered as a normal
+        // standard handoff.
+        assert_eq!(
+            classify_semantic(&report(81, 81, 0)),
+            SemanticState::Unavailable
+        );
+        assert_eq!(
+            classify_semantic(&report(41, 41, 0)),
+            SemanticState::Unavailable
+        );
+    }
+
+    #[test]
+    fn calls_that_worked_and_produced_nothing_are_degraded() {
+        assert_eq!(
+            classify_semantic(&report(41, 0, 0)),
+            SemanticState::Degraded
+        );
+        // Some failures are ordinary and are not degradation.
+        assert_eq!(
+            classify_semantic(&report(41, 3, 0)),
+            SemanticState::Degraded
+        );
+        assert_eq!(classify_semantic(&report(41, 3, 12)), SemanticState::Ok);
+    }
+
+    #[test]
+    fn no_model_asked_for_is_its_own_state() {
+        assert_eq!(
+            classify_semantic(&report(0, 0, 0)),
+            SemanticState::NotRequested
+        );
+    }
+
+    #[test]
+    fn each_state_says_something_a_reader_can_act_on() {
+        assert_eq!(SemanticState::Ok.label(), "ok");
+        assert!(SemanticState::Ok.notice().is_none());
+        // The ordinary deterministic path is not a warning: the front matter
+        // already says `not_requested`, and noise is how warnings stop being read.
+        assert!(SemanticState::NotRequested.notice().is_none());
+        for state in [SemanticState::Degraded, SemanticState::Unavailable] {
+            let notice = state.notice().expect("a reader must be told");
+            assert!(notice.len() > 80, "{notice}");
+            assert!(
+                notice.contains("deterministic") || notice.contains("EMPTY"),
+                "{notice}"
+            );
+        }
     }
 }

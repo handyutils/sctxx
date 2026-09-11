@@ -9,6 +9,14 @@
   read from the `codex/` reference clone; ticket
   [Determine whether Codex `compacted` lines carry readable summaries](../../specs/000-wayfinding/issues/05-codex-compacted-readability.md)
 
+> **Terminology, added 2026-09-11.** The title says "compaction algorithm" because that is what this
+> decision was called when it was written. Codex has no single local algorithm to adopt: it dispatches
+> between token-budget compaction, remote compaction (server-side), and local model summarisation, and
+> its local summarisation path is a short prompt plus a model call. This ADR's decision is unaffected —
+> it adopts a *retention shape* and the meaning of a `compacted` marker, and explicitly declines to port
+> the loop. The accurate description of what sctxx reuses, with call sites, is
+> [`docs/CODEX-PROVENANCE-AUDIT.md`](../CODEX-PROVENANCE-AUDIT.md).
+
 ## Context
 
 sctxx and Codex solve different problems with the same word. Codex's *compaction* is an in-loop

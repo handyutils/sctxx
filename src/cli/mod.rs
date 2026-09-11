@@ -11,6 +11,7 @@
 
 mod discover;
 mod doctor;
+mod handoff;
 // Reachable so the TUI's extraction form can build itself from clap's own
 // definition of the command instead of restating it (SC-004).
 pub(crate) mod extract;
@@ -123,6 +124,8 @@ enum Command {
     Skill(skill::SkillCommand),
     /// Print a JSON Schema for one of sctxx's contracts.
     Schema(schema::SchemaArgs),
+    /// Extract a session and start a new agent session with it. The main command.
+    Handoff(handoff::HandoffArgs),
     /// Report detected session stores, LLM backends, and configuration.
     Doctor,
     /// Update this copy of sctxx the way it was installed.
@@ -178,6 +181,7 @@ fn dispatch(cli: &Cli) -> Result<i32> {
         Command::Redact(args) => redact::run(args, global),
         Command::Skill(command) => skill::run(command, global),
         Command::Schema(args) => schema::run(args, global),
+        Command::Handoff(args) => handoff::run(args, global),
         Command::Doctor => doctor::run(global),
         Command::Update(args) => update::run(args, global),
     }

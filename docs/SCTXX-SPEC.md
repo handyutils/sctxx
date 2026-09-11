@@ -143,7 +143,8 @@ sctxx
 ├── list      [--agent A] [--any-project] [--limit N] [--since DUR]
 ├── find      <query> [--agent A] [--any-project] [--limit N]
 ├── show      <ref> [--view raw|masked|ir] [--range A..B] [--active-branch-only]
-├── extract   <ref> [options…]                       # the main command
+├── extract   <ref> [options…]                       # the deterministic artifact
+├── handoff   <ref> [--to AGENT] [--out DIR] [--run] [--json]   # extract + start an agent
 ├── expand    <ref|artifact> <event-range…> [--context N]
 ├── verify    <artifact> [--repo PATH] [--strict]
 ├── probe     <artifact> [--session REF] [--n N] [--min-probe-score S]
@@ -158,6 +159,11 @@ sctxx
 └── update    [--check]                              # update the way this copy was installed
 ```
 
+`handoff` is the main line expressed for a program: it extracts the session deterministically, writes
+the artifact, and prints the exact command that would start the receiving agent (program, argv, cwd) —
+or runs it with `--run`. With no `--to` it answers "which agents could continue this?" instead. See
+§3.5.
+
 `sctxx --tui` is a top-level flag, not a subcommand: it takes no subcommand of its own and is a
 complete invocation (`sctxx --tui`).
 
@@ -166,7 +172,7 @@ complete invocation (`sctxx --tui`).
 ```text
 sctxx extract <ref>
   --mode fast|standard|full        default: standard
-  --llm auto|none|host|cli:<name>|api:<provider>[/<model>]   default: auto
+  --llm none|auto|host|cli:<name>|api:<provider>[/<model>]   default: none  (ADR 0007)
   --model-fold M --model-premap M --model-probe M --model-judge M
   --budget TOKENS                  total artifact budget, default 8000
   --tail TOKENS                    recency tail budget, default 12000 (not counted in --budget)
@@ -204,7 +210,7 @@ Mode matrix:
 | S6 probe loop | – | – | ✓ |
 | S7 render | ✓ | ✓ | ✓ |
 
-`--llm none` forces S3 off in every mode and yields a **deterministic artifact**: goal = first user message + all user messages (truncated), ledgers, masked tail, pointers. This is still better than a raw strip and costs nothing.
+`--llm none` — **the default** ([ADR 0007](../docs/adr/0007-deterministic-by-default.md)) — forces S3 off in every mode and yields the **deterministic artifact**: goal = first user message + all user messages (truncated), ledgers, masked tail, pointers. It is complete for a handoff: every pointer is resolvable through `expand`, and it costs no tokens. Naming a backend (`auto`, `cli:<agent>`, `api:<provider>`) asks for the fold explicitly, which on a 103k-event session is 41 fold calls plus 40 premap calls — a decision, not a default.
 
 ### 3.5 Other commands (behavioral summary)
 
@@ -215,6 +221,14 @@ Mode matrix:
 - `probe`: runs S6 against an existing artifact and session.
 - `skill install`: writes `SKILL.md` + references into the target agents' skill directories (§13).
 - `doctor`: prints detected stores (with counts), detected agent CLIs and versions, API key presence (never values), config path, cache size.
+- `handoff`: **the main line, for a caller that is not a person.** `sctxx handoff <ref> --to claude
+  --json` extracts the session deterministically (no model, no tokens), writes the artifact, and prints
+  `{session, artifact, directory, reused, agent, route, fallback, program, argv, cwd, ran}` so the
+  caller can spawn the command itself; `--run` spawns it instead. With no `--to`, it lists the installed
+  agents with their versions and whether the seeding channel was verified on them. An artifact already
+  on disk **for that session** is reused rather than rewritten. A refusal (an agent that is not
+  installed) exits 2 with the available agents named on stderr, and stdout stays empty — a refusal is
+  not payload.
 - `update`: updates an installed copy **the way it was installed**, because crates.io and npm are updated by different tools. It decides from its own executable path — inside a `node_modules` directory means npm, cargo's bin directory means `cargo install` — prints the detection and the exact command, and then runs it with a fixed argv (never a shell). An install it did not make (a distribution package, a container, a checkout build) is refused with both installer commands named, rather than guessed at. `--check` prints the plan and stops.
 
 ---

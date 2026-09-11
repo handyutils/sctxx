@@ -7,7 +7,29 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+### Added
+
+- **`sctxx handoff <ref> --to <agent>` — the main line, for a program.** One command extracts a
+  session's context and hands you the exact command that starts a receiving agent with it:
+  `{program, argv, cwd, artifact}` as JSON, ready to spawn, or `--run` to let sctxx do it. With no
+  `--to` it answers "which agents could continue this?" with their versions and whether the seeding
+  channel was verified on them. An artifact already on disk for that session is reused rather than
+  rewritten.
+- `sctxx handoff` and the TUI's `h` share one definition of what a handoff costs
+  (`ExtractArgs::deterministic`), so the two cannot drift.
+
 ### Changed
+
+- **`sctxx extract` no longer calls a model unless you ask it to.** `--llm` now defaults to `none`. On a
+  103,727-event session the old default (`auto` → `cli:claude`) was **41 fold calls plus 40 premap
+  calls — about 813,000 input tokens**; the deterministic artifact is the same session in **24 seconds
+  for zero tokens**, and it already carries every `[evt a–b]` pointer, every ledger, and the recency
+  tail, which is what a receiving agent needs. Name a backend (`--llm auto`, `cli:<agent>`,
+  `api:<provider>`) to opt into the fold. See
+  [ADR 0007](docs/adr/0007-deterministic-by-default.md).
+- `--dry-run` now reports the run being planned rather than a fold that is not going to happen: under
+  `--llm none`, planned calls and estimated prompt tokens are both zero. Reporting a cost for a
+  different command than the one being planned is worse than reporting nothing.
 
 - **`h` in the TUI is now the whole feature, and it no longer costs tokens.** It used to require
   extracting first, through a form of nineteen flags whose default (`--llm auto` → `cli:claude`) pushed

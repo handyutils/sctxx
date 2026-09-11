@@ -171,8 +171,10 @@ impl Backend for CliBackend {
             message,
         })?;
 
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(Error::LlmFailed {
                 backend: self.name(),
                 message: format!(
@@ -180,12 +182,27 @@ impl Backend for CliBackend {
                     output.status.code().unwrap_or(-1),
                     self.template.name,
                     self.template.verified_against,
-                    crate::vendor::codex::truncate::truncate_middle_bytes(stderr.trim(), 500)
+                    // The reason is not always on stderr. Claude Code exits 1
+                    // with an *empty* stderr and puts the reason in its JSON on
+                    // stdout, so reading stderr alone reported a failure with no
+                    // message at all — which then looked like an empty fold.
+                    failure_reason(&stdout)
+                        .or_else(|| failure_reason(&stderr))
+                        .unwrap_or_else(|| "no output on either stream".to_string())
                 ),
             });
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        // A CLI can report an API error in JSON and still exit 0. Returning that
+        // text as if it were the model's answer would feed the fold an error
+        // message to parse — and a fold that parses nothing produces nothing.
+        if let Some(reason) = reported_error(&stdout) {
+            return Err(Error::LlmFailed {
+                backend: self.name(),
+                message: format!("the CLI reported an error: {reason}"),
+            });
+        }
+
         let text = match self.template.extract {
             Extract::Stdout => stdout,
             Extract::JsonKey(key) => serde_json::from_str::<serde_json::Value>(&stdout)
@@ -200,6 +217,44 @@ impl Backend for CliBackend {
             output_tokens: None,
         })
     }
+}
+
+/// The reason a CLI failed, from whichever stream carries it.
+///
+/// A JSON error object with a `result`, `error`, or `message` field is read for
+/// that field; anything else is used as-is. Empty text is not a reason.
+fn failure_reason(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        for key in ["result", "error", "message", "detail"] {
+            if let Some(found) = value.get(key).and_then(|v| v.as_str())
+                && !found.trim().is_empty()
+            {
+                // The status code is the difference between "you are rate
+                // limited" and "you are logged out".
+                let status = value
+                    .get("api_error_status")
+                    .map(|s| format!(" (status {s})"))
+                    .unwrap_or_default();
+                return Some(format!("{}{status}", found.trim()));
+            }
+        }
+    }
+    Some(crate::vendor::codex::truncate::truncate_middle_bytes(
+        trimmed, 500,
+    ))
+}
+
+/// An error a CLI reported inside an otherwise successful exit.
+fn reported_error(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    if value.get("is_error").and_then(|v| v.as_bool()) != Some(true) {
+        return None;
+    }
+    failure_reason(text)
 }
 
 /// Wait for a child, killing it if it exceeds `timeout`.
@@ -324,6 +379,33 @@ mod tests {
                 template.name
             );
         }
+    }
+
+    #[test]
+    fn a_failure_reason_is_read_from_whichever_stream_has_it() {
+        // The shape Claude Code actually produces on a rate limit: exit 1, an
+        // empty stderr, and the reason inside its JSON on stdout.
+        let claude =
+            r#"{"is_error":true,"api_error_status":429,"result":"You've hit your session limit"}"#;
+        assert_eq!(
+            failure_reason(claude).as_deref(),
+            Some("You've hit your session limit (status 429)")
+        );
+        assert_eq!(
+            failure_reason("plain text error").as_deref(),
+            Some("plain text error")
+        );
+        // Silence is not a reason, and must not be reported as one.
+        assert_eq!(failure_reason(""), None);
+        assert_eq!(failure_reason("   \n "), None);
+    }
+
+    #[test]
+    fn an_error_reported_with_a_successful_exit_is_still_an_error() {
+        assert!(reported_error(r#"{"is_error":true,"result":"nope"}"#).is_some());
+        // A normal answer is not an error, whatever it says.
+        assert!(reported_error(r#"{"result":"all good"}"#).is_none());
+        assert!(reported_error("plain model text").is_none());
     }
 
     #[test]

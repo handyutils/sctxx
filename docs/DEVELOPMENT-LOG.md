@@ -12,6 +12,105 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - A silent failure, and an audit that corrected our own story
+
+Commits: `<pending>`
+
+**The artifact the review examined was produced by a run in which every model call failed.** Its
+`state.json` says it plainly: `items: []`, `ops_log: []`, `rejected: []`, and all 41 chunks
+`processed`. `report.json` adds `fold_calls: 81`, `accepted_ops: 0`, `rejected_ops: 0`, and 73
+warnings. Claude's subscription had hit its session limit:
+
+```json
+"api_error_status": 429, "is_error": true,
+"result": "You've hit your session limit · resets 10:30pm"
+```
+
+Three separate defects turned that into a confident-looking `mode: standard` handoff:
+
+1. **The backend hid the reason.** Claude Code exits 1 with an *empty stderr* and puts the reason in
+   its JSON on stdout, so every warning read `exited with 1: ` and nothing else. The backend now reads
+   whichever stream carries it, includes `api_error_status`, and treats `is_error: true` on a
+   *successful* exit as a failure too — otherwise an error message would have been returned as the
+   model's answer for the fold to parse.
+2. **The fold swallowed systemic failure.** Every failure became a warning and the run continued,
+   which is right for one chunk and wrong for all 81.
+3. **Nothing classified the result.** An empty semantic layer rendered exactly like a full one, under
+   a header that says `mode: standard`.
+
+**The fix is a health gate.** `classify_semantic` maps the fold's own counters to
+`not_requested | ok | degraded | unavailable`, the front matter now carries `semantic:`, and L0 leads
+with a notice when it is not `ok`. The run that prompted this now says `semantic: unavailable` and
+tells the reader that nothing in it was summarised by a model. The ordinary deterministic path stays
+clean — a warning printed on the normal path is how warnings stop being read.
+
+**Then the audit, because the review asked the right question.** It wanted the call graph rather than
+an argument from documentation, so every public item of `src/vendor/codex/` was grepped for call sites
+outside the vendor directory. `docs/CODEX-PROVENANCE-AUDIT.md` is the result, and it confirmed the
+review's correction while finding something it had assumed and could not check:
+
+- **Used:** truncation (23 call sites across masking, chunking, ledgers and rendering), secret
+  redaction (51), rollback-aware reconstruction (21, from the Codex adapter), the `apply_patch`
+  grammar (10, from the file ledger), and the memory-extraction prompt.
+- **Not used:** `tiered_input::select` — the tiered budget-*filling* algorithm — has **zero call
+  sites**. `Tier` classifies rows; `segment::plan` cuts the recency tail at an episode boundary. The
+  review's one hedge ("the evidence-selection machinery is real and operational") is half right, and
+  the wrong half mattered: our own marketing table attributed a 300 MB session fitting in a prompt to a
+  mechanism that never runs.
+
+So the story was corrected at its sources rather than in a footnote: the DEVELOPMENT-LOG headline
+("Codex compaction algorithm extracted"), the vendor manifest, the npm README's lineage table, and an
+annotation on ADR 0002 whose *content* was careful but whose *title* implied a single algorithm exists.
+Ticket 15 asks the question the audit raises — wire the selector in or delete it — with the evidence
+that would settle it.
+
+**The lesson is the same one as the main-line rework, one level down.** A claim in a README is a
+product surface. Ours described a mechanism this repository does not run, and nobody would have caught
+it from the inside, because every test passed and every line of the code was real.
+
+## 2026-09-11 - The main line for a program, and the model becomes opt-in
+
+Commits: `<pending>`
+
+**The same sentence has to work for a person and for a program**: grab any session from any agent →
+extract its context → wire that context into a new session of any coding agent. The TUI got it with two
+keypresses (`h`, then choose). This is the other half: one command, one JSON object, no ceremony.
+
+```sh
+sctxx handoff <ref> --json            # who could continue this?
+sctxx handoff <ref> --to claude --json
+#   {program, argv, cwd, artifact, route, fallback, reused, ran: false}
+sctxx handoff <ref> --to claude --run # or let sctxx start it
+```
+
+`program` + `argv` + `cwd` is the whole contract: a caller spawns it and the receiving agent starts
+with the handoff already loaded. `--run` is there for a caller that would rather not. The TUI and the
+CLI share `ExtractArgs::deterministic`, so there is exactly one definition of what a handoff costs.
+
+**ADR 0007: `--llm` now defaults to `none`.** The measurement that forced it, from that same session:
+
+```text
+masked rows:    17088  (812830 tokens)
+chunks to fold: 40     (807372 tokens)
+planned calls:  41 fold + 40 premap
+```
+
+813,000 tokens and 81 model calls, from a command documented as producing "a compact, verified,
+provenance-linked handoff artifact", in a project whose first constitutional rule is *deterministic
+first*. The deterministic artifact is the same session in **24 seconds and zero tokens**, and it is
+complete: every pointer resolves through `expand`. The fold adds typed items and decisions — real
+value, and not a prerequisite for a handoff. It is now one flag away, which is the point: a decision,
+not a trap.
+
+**A bug the accompanying test found.** `--dry-run` reported `planned calls: 1 fold` for a `--llm none`
+run — it was reporting what a fold *would* call rather than what the run *will* call. That number is
+exactly what someone consults before deciding, so under `none` it now reports zero calls and zero
+estimated prompt tokens. A dry run whose numbers describe a different command is worse than no dry run.
+
+**The agent-facing reference was updated too**, because a capability an agent cannot discover is not
+one: `skill/references/cli.md` now leads with `sctxx handoff`, its JSON shape, the exit codes, and the
+note that the receiving agent gets the whole terminal.
+
 ## 2026-09-11 - The main line was behind its own machinery
 
 Commits: `2d6fbc4`
@@ -544,7 +643,7 @@ Both are now closed, and the Codex `compacted` path is exercised by a fixture.
 
 Ledger: `specs/006-m2-codex-adapter/` (spec, tasks, evidence).
 
-## 2026-09-11 - Codex compaction algorithm extracted; the reuse boundary drawn
+## 2026-09-11 - - **Codex context-management and extraction primitives ported; the compaction reuse boundary established.**; the reuse boundary drawn
 
 Commits: `7e814ef08d518aad2f645a702afa441d533bf039`
 

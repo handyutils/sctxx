@@ -8,6 +8,7 @@ sctxx: <version>
 source: <normalized>
 mode: standard
 llm: none
+semantic: not_requested
 prompts: {fold_system: 1, fold_user: 2, premap: 1, final_pass: 1, repair: 1, handoff_preamble: 1}
 verification: {repo: none, head: none, commits_since_session: 0, stale: 0, contradicted: 0}
 tokens: <normalized>

@@ -16,7 +16,48 @@
 
 ## Commands
 
-### `sctxx extract <ref>` — the main command
+### `sctxx handoff <ref> --to <agent>` — the main line, for a program
+
+One command: extract the session's context and start a new agent session with it.
+
+```sh
+# Who could continue this session?
+sctxx handoff <ref> --json
+#   {"session": "...", "session_path": "...", "agents": [{"agent": "claude",
+#     "version": "2.1.268", "seeding_verified": true, ...}, ...]}
+
+# Get the context and the command that would start an agent with it.
+sctxx handoff <ref> --to claude --json
+#   {"session": "claude:1367d688", "artifact": "/proj/.sctxx/handoff.md",
+#    "directory": "/proj/.sctxx", "reused": false, "agent": "claude",
+#    "route": "system prompt from the artifact's path", "fallback": false,
+#    "program": "/usr/local/bin/claude",
+#    "argv": ["--append-system-prompt-file", "/proj/.sctxx/handoff.md", "Read the handoff at ..."],
+#    "cwd": "/proj", "ran": false}
+```
+
+Spawn `program` with `argv` in `cwd` and the receiving agent starts with the handoff already loaded.
+Add `--run` and sctxx does it (the terminal is handed over; see the note below).
+
+**The extraction is always deterministic — no model, no tokens.** The artifact carries every
+`[evt a–b]` pointer, every ledger, and the recency tail, which is what a receiving agent needs; it
+follows a pointer with `sctxx expand`. A 103k-event session produces all five files in about 24
+seconds. `--llm cli:claude` (or `api:...`) is what asks for the model-written fold, and it is a
+deliberate choice: on that session it is 41 fold calls plus 40 premap calls.
+
+An artifact already on disk **for the same session** is reused, so calling `handoff` twice does not
+redo the work. `--force` rewrites it regardless.
+
+Exit codes: 0 success, 2 if the named agent is not installed (the available agents are named on
+stderr, stdout stays empty), 4 if the session cannot be found, 6 if a model was named and is
+unavailable.
+
+> The receiving agent gets the whole terminal. sctxx restores it, runs the agent, and comes back when
+> the agent exits — a coding agent is a full-screen application and a pane inside a TUI is not enough
+> room for one. An agent asked to work in a directory it has not seen before will first ask to be
+> trusted; that prompt is the agent's, and sctxx never bypasses it.
+
+### `sctxx extract <ref>` — the artifact, with the flags
 
 | Flag | Default | What it does |
 | --- | --- | --- |
@@ -54,6 +95,7 @@ sctxx redact <path|-> [--strict] [--out PATH] [--check]
 sctxx skill  install|uninstall|print [--target A]... [--scope user|project] [--force]
 sctxx schema handoff|state|ops|ir
 sctxx doctor
+sctxx handoff <ref> [--to AGENT] [--out DIR] [--run] [--force] [--json]
 sctxx update [--check]
 ```
 

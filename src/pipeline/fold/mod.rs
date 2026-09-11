@@ -61,6 +61,10 @@ pub struct FoldReport {
     pub rejected_ops: usize,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Model calls that failed outright. Counted separately from the warnings
+    /// because "some chunks failed" and "every call failed" are different
+    /// situations, and only the caller can decide what the second one means.
+    pub failed_calls: usize,
     /// Backend failures that did not abort the run.
     pub warnings: Vec<String>,
 }
@@ -216,7 +220,10 @@ fn apply_call(
         Ok(response) => response,
         Err(error) => {
             // A backend failure loses this chunk's semantic pass, not the run:
-            // the deterministic parts of the artifact are still correct.
+            // the deterministic parts of the artifact are still correct. It is
+            // counted, though, because a run in which *every* call failed has
+            // no semantic layer at all and must not look like an ordinary one.
+            report.failed_calls += 1;
             report.warnings.push(format!("{chunk_id}: {error}"));
             return;
         }
@@ -354,7 +361,10 @@ fn premap(
                         *slot = summarize_candidates(&text);
                     }
                 }
-                Err(error) => warnings.push(format!("premap chunk {index}: {error}")),
+                Err(error) => {
+                    report.failed_calls += 1;
+                    warnings.push(format!("premap chunk {index}: {error}"));
+                }
             }
         }
     }
@@ -847,5 +857,96 @@ mod tests {
             });
         assert!(ledger_slice(&ledgers, EvtRange::new(0, 10)).contains("cargo test"));
         assert!(ledger_slice(&ledgers, EvtRange::new(20, 30)).contains("nothing recorded"));
+    }
+}
+
+#[cfg(test)]
+mod failing_backend_tests {
+    use super::*;
+    use crate::llm::{Capabilities, Request, Response};
+    use crate::pipeline::mask::Row;
+    use crate::pipeline::segment::{Chunk, Plan};
+
+    /// A backend that never answers, which is what a rate-limited subscription
+    /// looks like from here.
+    struct AlwaysFails;
+
+    impl Backend for AlwaysFails {
+        fn name(&self) -> String {
+            "cli:claude".to_string()
+        }
+        fn capabilities(&self) -> Capabilities {
+            Capabilities {
+                json_schema_native: false,
+                max_context: None,
+            }
+        }
+        fn complete(&self, _request: &Request) -> crate::error::Result<Response> {
+            Err(crate::error::Error::LlmFailed {
+                backend: "cli:claude".to_string(),
+                message: "exited with 1: You've hit your session limit".to_string(),
+            })
+        }
+    }
+
+    #[test]
+    fn a_failed_backend_call_is_counted_rather_than_only_warned_about() {
+        // The run that produced an empty artifact: every call failed, every
+        // failure became a warning, and nothing counted them.
+        let session = crate::ir::Session {
+            agent: crate::ir::AgentKind::ClaudeCode,
+            id: "id".into(),
+            source_paths: Vec::new(),
+            source_hash: String::new(),
+            meta: crate::ir::SessionMeta::default(),
+            events: Vec::new(),
+            active: Vec::new(),
+            native_compactions: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let ledgers = crate::pipeline::ledgers::Ledgers::default();
+        let rows = vec![Row {
+            evt: 1,
+            tier: crate::vendor::codex::tiered_input::Tier::User,
+            text: "do the thing".into(),
+            tokens: 3,
+            is_human_turn: true,
+        }];
+        let plan = Plan {
+            episodes: Vec::new(),
+            chunks: vec![Chunk {
+                id: "c0".into(),
+                rows: 0..1,
+                evt_start: 1,
+                evt_end: 1,
+                tokens: 3,
+                episode_ids: Vec::new(),
+            }],
+            tail: 0..0,
+            tail_episode_ids: Vec::new(),
+        };
+        let input = FoldInput {
+            session: &session,
+            ledgers: &ledgers,
+            rows: &rows,
+            plan: &plan,
+        };
+        let options = FoldOptions {
+            // One chunk, so there is no premap to confuse the count.
+            premap_threshold: usize::MAX,
+            ..Default::default()
+        };
+        let (state, report) =
+            run(&input, &AlwaysFails, &options).expect("a failed call is not fatal");
+
+        assert_eq!(report.calls, 1);
+        assert_eq!(report.failed_calls, 1, "the failure must be counted");
+        assert!(report.accepted_ops == 0);
+        assert!(state.items.is_empty());
+        assert!(
+            report.warnings.iter().any(|w| w.contains("session limit")),
+            "and the reason must survive: {:?}",
+            report.warnings
+        );
     }
 }

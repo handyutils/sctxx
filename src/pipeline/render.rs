@@ -82,6 +82,8 @@ pub struct RenderOptions {
     pub layers: Layers,
     pub mode: &'static str,
     pub llm: String,
+    /// Whether the model-written layer is present. Rendered, not assumed.
+    pub semantic: crate::pipeline::SemanticState,
     pub redact: RedactMode,
     /// Tokens the masked view of the whole session costs. Known only to the
     /// pipeline, which is why it is passed in rather than recomputed here.
@@ -98,6 +100,7 @@ impl Default for RenderOptions {
             layers: Layers::default(),
             mode: "standard",
             llm: "none".to_string(),
+            semantic: crate::pipeline::SemanticState::NotRequested,
             redact: RedactMode::Default,
             masked_tokens: 0,
             artifact_tokens: 0,
@@ -224,6 +227,10 @@ fn front_matter(artifact: &Artifact<'_>) -> String {
     out.push_str("}\n");
     out.push_str(&format!("mode: {}\n", artifact.options.mode));
     out.push_str(&format!("llm: {}\n", artifact.options.llm));
+    out.push_str(&format!(
+        "semantic: {}\n",
+        artifact.options.semantic.label()
+    ));
     out.push_str(&format!("prompts: {{{}}}\n", prompts.join(", ")));
     out.push_str(&format!(
         "verification: {{repo: {}, head: {}, commits_since_session: {}, stale: {}, contradicted: {}}}\n",
@@ -254,6 +261,16 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
     let state = artifact.state;
     let ledgers = artifact.ledgers;
     let mut out = String::from("\n## L0 · Brief\n\n");
+
+    // Before any content, because a reader who acts on an empty state as though
+    // it were a full one is worse off than one who was told.
+    if let Some(notice) = artifact.options.semantic.notice() {
+        for line in notice.lines() {
+            out.push_str(&format!("> {line}\n"));
+        }
+        out.push('\n');
+    }
+
     let mut budget = BRIEF_BUDGET;
 
     let push = |out: &mut String, text: String, budget: &mut usize| {
@@ -1239,5 +1256,69 @@ mod tests {
         assert_eq!(value["schema"], "sctxx.handoff/v1");
         assert_eq!(value["items"][0]["id"], "G1");
         assert_eq!(value["session"]["agent"], "claude");
+    }
+}
+
+#[cfg(test)]
+mod semantic_render_tests {
+    use super::*;
+    use crate::pipeline::ledgers::Ledgers;
+    use crate::pipeline::{SemanticState, fold::state::FoldState};
+
+    fn artifact_with(semantic: SemanticState) -> String {
+        let options = RenderOptions {
+            semantic,
+            ..RenderOptions::default()
+        };
+        let session = crate::ir::Session {
+            agent: crate::ir::AgentKind::ClaudeCode,
+            id: "id".into(),
+            source_paths: Vec::new(),
+            source_hash: String::new(),
+            meta: crate::ir::SessionMeta::default(),
+            events: Vec::new(),
+            active: Vec::new(),
+            native_compactions: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let state = FoldState::new();
+        let ledgers = Ledgers::default();
+        let reconciliation = crate::pipeline::reconcile::Reconciliation::default();
+        markdown(&Artifact {
+            session: &session,
+            ledgers: &ledgers,
+            state: &state,
+            reconciliation: &reconciliation,
+            tail: &[],
+            options: &options,
+        })
+    }
+
+    #[test]
+    fn an_empty_semantic_layer_is_stated_in_the_artifact_not_left_to_inference() {
+        // The whole point: a reader must not have to notice that the sections a
+        // standard handoff promises are missing.
+        let unavailable = artifact_with(SemanticState::Unavailable);
+        assert!(
+            unavailable.contains("semantic: unavailable"),
+            "the header must say it:\n{unavailable}"
+        );
+        assert!(
+            unavailable.contains("UNAVAILABLE"),
+            "and L0 must warn before anything is acted on:\n{unavailable}"
+        );
+
+        let degraded = artifact_with(SemanticState::Degraded);
+        assert!(degraded.contains("semantic: degraded"));
+        assert!(degraded.contains("EMPTY"));
+    }
+
+    #[test]
+    fn the_ordinary_deterministic_artifact_carries_no_warning() {
+        // Noise on the normal path is how warnings stop being read.
+        let text = artifact_with(SemanticState::NotRequested);
+        assert!(text.contains("semantic: not_requested"));
+        assert!(!text.contains("UNAVAILABLE"));
+        assert!(!text.contains("EMPTY"));
     }
 }
