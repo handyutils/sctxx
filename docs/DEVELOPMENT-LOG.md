@@ -12,6 +12,35 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The working tree moves to the normal checkout; artifacts stop being committable
+
+Commits: `c03e4b5328f63aa1c979dc8d2a6c728fa07260d0`, `684382cad54a656a861c60f6154e7918f7e6a18c`
+
+**The repository now lives where it looks like it lives.** All work up to this point happened in a
+Delta-managed worktree under `.delta/worktrees/…`, while the project's own directory sat on the
+original `Initial commit` with a stale untracked copy of `docs/`, `specs/`, `AGENTS.md`, and
+`.specify/`. Two trees, one of them wrong, is a trap: an agent that opens the obvious path edits
+yesterday's code. The main checkout was fast-forwarded to `origin/main` after verifying that every
+untracked path it held was either an older copy or a byte-identical duplicate (the two files that
+looked unique, `docs/clean-room-adapters.md` and `docs/contracts-and-pipeline.md`, already exist as
+`.claude/rules/*.md`), and the stale trees were backed up to `/tmp/sctxx-migration-backup` first.
+269 tests, the vendor check, `cargo package`, and a fresh `npm ci && vite build` all pass in the new
+location. `.delta/` remains on disk (3.5 GB, ignored locally) until it is deliberately deleted.
+
+**The last trace of that layout left the tests.** `tests/pipeline.rs` normalized snapshot paths by
+matching the fragments `.delta/worktrees` and `tests/fixtures`, then discarding the line and keeping
+its last path segment. That encoded one machine's layout into the corpus and mangled the content it
+was supposed to pin — the L3 retrieval line snapshotted as `<path>/basic.jsonl\`` rather than the real
+`- \`…/tests/fixtures/claude/basic.jsonl\``. Normalization is now anchored on `CARGO_MANIFEST_DIR`.
+
+**`extract --out` warns when git would track the artifact.** An artifact quotes the session — user
+messages verbatim, paths, error output — so writing it into a repository leaves it one `git add -A`
+away from being committed and pushed. Spec §19 item 6 asked whether sctxx should edit the user's git
+config; the answer is no, but silence is worse. `extract` now asks `git check-ignore` (read-only, on
+the §10.1 allowlist) and, when the answer is "not ignored", prints the reason and the exact command
+that fixes it — on stderr, so stdout stays the artifact path. This is the first thing a new user will
+see, because it is on their first real run.
+
 ## 2026-09-11 - The Codex pin verified, and the fold finally receives provider summaries
 
 Commits: `c8678dedb7a9145014ee8cf3c328e417258394ba`, `58c4315c65485cab1225157adb1b8b6afc64c178`
