@@ -7,7 +7,27 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **L0 was a repository diff where it should have been a briefing.** On a real 103k-event session the
+  same artifact spent its L0 on six findings and a list of commits and files that had changed *since*
+  the session — bookkeeping a reader did not ask for — while saying nothing about what the ten days
+  were spent on. It now carries, all of it computed without a model:
+  - **Where the work was**: the subsystems, ranked by activity (`acryl-tui/src` 321,
+    `acryl-desktop/src` 239, `acryl-harness-runtime/src` 69 …) instead of 832 file paths.
+  - **What it committed**: the commit subjects, which are the session's own summary of each unit of
+    work and name its decisions (`feat(028): extract the dsh engine as a full Cordis swappable plugin`,
+    `docs(028): Decision 5 - the real DSH extension seam for an alternative engine`).
+  - **The arc**: the human's asks sampled across the session — onboarding, loader errors, naming,
+    auth, "it works now", "the plugin is active but I do not see it anywhere". The first and last
+    request bracket a conversation; they are not the conversation.
+  - The changed-file list moved to the workset in L1, where a reader goes to act, and only the counts
+    remain in L0.
+- **The absent semantic layer is now stated in L0**, not only in the front matter as
+  `semantic: not_requested`. A reader who does not know that no model ran reads a transcript digest as
+  though it were a handoff, and the notice says what is missing and the one flag that gets it.
+- A finding that said "41 cited paths are gone that were never the work" was removed: true,
+  unactionable, and a finding nobody can act on teaches a reader to skim findings.
 
 ## [0.3.0] - 2026-09-11
 

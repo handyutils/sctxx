@@ -337,6 +337,12 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
         );
     }
 
+    // What the session *did*. All of this is already in the ledgers and none of it
+    // was reaching L0: a reader was told which files had gone missing since and
+    // nothing about what the ten days were spent on.
+    push(&mut out, session_work(artifact), &mut budget);
+    push(&mut out, the_arc(artifact), &mut budget);
+
     // The last thing the human asked is the sharpest statement of intent the
     // transcript contains, and it costs nothing to compute.
     if ledgers.user_messages.len() > 1
@@ -365,7 +371,7 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
                 "**Provider summary** (low trust \u{2014} written by a model, not evidence; verify \
                  against the repository and the recency tail) [evt {}]: {}\n\n",
                 summary.evt,
-                one_line(&summary.text, 400)
+                one_line(&summary.text, 280)
             ),
             &mut budget,
         );
@@ -505,25 +511,18 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
     );
 
     if artifact.reconciliation.repo_moved() {
-        let mut block = String::from("**Since this session**\n");
-        for commit in artifact
-            .reconciliation
-            .commits_since_session
-            .iter()
-            .take(10)
-        {
-            block.push_str(&format!("- new commit: {commit}\n"));
-        }
-        for file in artifact
-            .reconciliation
-            .changed_since_session
-            .iter()
-            .take(10)
-        {
-            block.push_str(&format!("- `{file}` changed after the session ended\n"));
-        }
-        block.push('\n');
-        push(&mut out, block, &mut budget);
+        // Counts, not a file list. Ten paths saying "changed after the session
+        // ended" is a diff a reader did not ask for and cannot use; the paths are
+        // in the workset in L1, where a reader goes to act.
+        push(
+            &mut out,
+            format!(
+                "**Since this session** {} new commit(s) and {} changed file(s) — see the workset in L1.\n\n",
+                artifact.reconciliation.commits_since_session.len(),
+                artifact.reconciliation.changed_since_session.len()
+            ),
+            &mut budget,
+        );
     }
     if artifact.reconciliation.contradictions() > 0 {
         push(
@@ -580,6 +579,116 @@ mod action_quality_tests {
         assert_eq!(quoted, "Error: not registered at Object.mount next line");
     }
 }
+
+/// What the session spent itself on, from the ledgers alone.
+///
+/// A receiving agent's first question is "what is this work", and the ledgers
+/// answer it: which parts of the tree were touched and how hard, and what the
+/// commits said. On the session this was written from that is
+/// `acryl-tui/src`, `acryl-desktop/src`, `acryl-harness-runtime/src` and 46
+/// commits naming the engine-swap work — none of which reached L0 before.
+fn session_work(artifact: &Artifact<'_>) -> String {
+    let ledgers = artifact.ledgers;
+    let mut out = String::new();
+
+    // Where the work was. Directories, not files: 832 paths say nothing, and
+    // eight areas name the subsystems.
+    let mut areas: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for file in &ledgers.files {
+        let area = subsystem_of(&file.path);
+        *areas.entry(area).or_insert(0) += file.edits + file.reads;
+    }
+    let mut ranked: Vec<(String, u32)> = areas.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    // Anything outside the project is the environment, not the work.
+    ranked.retain(|(area, _)| area != OUTSIDE);
+    if !ranked.is_empty() {
+        out.push_str("**Where the work was**\n");
+        for (area, weight) in ranked.iter().take(5) {
+            out.push_str(&format!("- `{area}` — {weight} touch(es)\n"));
+        }
+        out.push('\n');
+    }
+
+    // What it committed. A commit subject is the session's own summary of a unit
+    // of work, written by the agent, and it costs nothing to read.
+    let commits = &ledgers.git.commits;
+    if !commits.is_empty() {
+        out.push_str(&format!(
+            "**What it committed** ({} total)\n",
+            commits.len()
+        ));
+        for commit in commits.iter().rev().take(5) {
+            out.push_str(&format!(
+                "- `{}` {}\n",
+                short_sha(&commit.sha),
+                one_line(&commit.subject, 110)
+            ));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// The arc of what the human asked for, sampled across the session.
+///
+/// The first message says where the work started and the last says where it
+/// stopped, and neither says what happened in between. On a 274-turn session the
+/// asks *are* the trajectory: onboarding, then loader errors, then naming, then
+/// "the plugin is active but I do not see it anywhere". Sampling them costs a
+/// few hundred tokens and is the difference between a snapshot and a story.
+fn the_arc(artifact: &Artifact<'_>) -> String {
+    let turns = &artifact.ledgers.user_messages;
+    // Below this there is no arc to sample; the first and last request already
+    // bracket the whole conversation.
+    const MIN_TURNS: usize = 8;
+    const SHOWN: usize = 5;
+    if turns.len() < MIN_TURNS {
+        return String::new();
+    }
+
+    // The first and last are shown elsewhere, so the middle is what is sampled.
+    let inner = &turns[1..turns.len() - 1];
+    let step = (inner.len() / SHOWN).max(1);
+    let mut out = String::from("**The arc** (every ~");
+    out.push_str(&format!("{step}th of {} asks)\n", turns.len()));
+    for (index, turn) in inner.iter().enumerate() {
+        if index % step != 0 || out.matches('\n').count() > SHOWN + 1 {
+            continue;
+        }
+        out.push_str(&format!(
+            "- evt {}: {}\n",
+            turn.evt,
+            one_line(&turn.text, 120)
+        ));
+    }
+    out.push('\n');
+    out
+}
+
+/// The part of a path that names a subsystem.
+///
+/// Repository-relative, two components deep: `acryl-tui/src`, `specs/028-…`.
+/// Everything outside the project is one bucket, because npm cache paths and
+/// log files are what the session read, not what it built.
+fn subsystem_of(path: &str) -> String {
+    // A path the session read from npm's cache or a log directory is the
+    // environment, not the work, and it does not belong in a workstream list.
+    let Some(after_repo) = path.split("/acryl/").nth(1) else {
+        return OUTSIDE.to_string();
+    };
+    let after_repo = after_repo.trim_start_matches('/');
+    let mut parts = after_repo.split('/').filter(|p| !p.is_empty());
+    match (parts.next(), parts.next()) {
+        (Some(first), Some(second)) if second.contains('.') => first.to_string(),
+        (Some(first), Some(second)) => format!("{first}/{second}"),
+        (Some(first), None) => first.to_string(),
+        _ => OUTSIDE.to_string(),
+    }
+}
+
+/// Activity that belongs to the machine rather than to the project.
+const OUTSIDE: &str = "outside the project";
 
 /// The first event that counts as "near the end of the session".
 ///

@@ -24,6 +24,8 @@ tokens: <normalized>
 
 ## L0 · Brief
 
+> No model ran, so there is no extracted state: no goals, constraints, decisions, dead ends or current step — only what deterministic passes can prove. That is the cheap artifact, and it is evidence rather than understanding. For the semantic layer: `sctxx extract <ref> --llm cli:<agent>`.
+
 **Goal** (from the first user message, not model-inferred): Implement the manifest loader with five trust tiers. Never auto-install extensions from the registry without asking me. [evt 0]
 
 **Last user request**: ok now make tier 3 actually sandboxed [evt 12]

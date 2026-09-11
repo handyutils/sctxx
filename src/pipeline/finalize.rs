@@ -302,16 +302,10 @@ fn findings(state: &FoldState, ledgers: &Ledgers, reconciliation: &Reconciliatio
                 ),
             });
         }
-        if !noise.is_empty() {
-            findings.push(Finding {
-                kind: FindingKind::MissingFiles,
-                text: format!(
-                    "{} cited path(s) are gone that were never the work — logs, temp files, or \
-                     dependencies the session read.",
-                    noise.len()
-                ),
-            });
-        }
+        // The log/temp paths are counted into the line above's total rather than
+        // given a finding of their own: "41 log files are gone" is true and
+        // useless, and a finding nobody can act on teaches a reader to skim.
+        let _ = noise;
     }
 
     // The header's `stale` count is the sum of three different things, and on the

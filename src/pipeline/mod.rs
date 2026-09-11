@@ -210,11 +210,16 @@ impl SemanticState {
     /// What a reader of the artifact must be told, when it is not `Ok`.
     pub fn notice(self) -> Option<&'static str> {
         match self {
-            // No notice: this is the ordinary path now, the front matter already
-            // says `semantic: not_requested`, and L0 renders the deterministic
-            // brief rather than empty sections. A warning on the normal path is
-            // noise, and noise is how warnings stop being read.
-            SemanticState::NotRequested => None,
+            // Said in L0, not only in the header. A reader who does not know the
+            // semantic layer is absent will read a transcript digest as though it
+            // were a handoff — which is exactly what happened. Kept to two lines,
+            // because the rest of L0 is what they came for.
+            SemanticState::NotRequested => Some(
+                "No model ran, so there is no extracted state: no goals, constraints, decisions, \
+                 dead ends or current step — only what deterministic passes can prove. That is the \
+                 cheap artifact, and it is evidence rather than understanding. For the semantic \
+                 layer: `sctxx extract <ref> --llm cli:<agent>`.",
+            ),
             SemanticState::Ok => None,
             SemanticState::Degraded => Some(
                 "The model-written state is EMPTY. The fold ran and produced no items, so the \
@@ -876,9 +881,18 @@ mod semantic_tests {
     fn each_state_says_something_a_reader_can_act_on() {
         assert_eq!(SemanticState::Ok.label(), "ok");
         assert!(SemanticState::Ok.notice().is_none());
-        // The ordinary deterministic path is not a warning: the front matter
-        // already says `not_requested`, and noise is how warnings stop being read.
-        assert!(SemanticState::NotRequested.notice().is_none());
+        // The deterministic path says what it is missing. A reader who does not
+        // know the semantic layer is absent reads a transcript digest as though
+        // it were a handoff — which is what happened, and why this is no longer
+        // left to the front matter alone.
+        let quiet = SemanticState::NotRequested
+            .notice()
+            .expect("the cheap artifact says so");
+        assert!(quiet.contains("No model ran"), "{quiet}");
+        assert!(
+            quiet.contains("--llm"),
+            "and how to get the other one: {quiet}"
+        );
         for state in [SemanticState::Degraded, SemanticState::Unavailable] {
             let notice = state.notice().expect("a reader must be told");
             assert!(notice.len() > 80, "{notice}");

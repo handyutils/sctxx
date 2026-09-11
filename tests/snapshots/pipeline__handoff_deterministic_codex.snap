@@ -24,6 +24,8 @@ tokens: <normalized>
 
 ## L0 · Brief
 
+> No model ran, so there is no extracted state: no goals, constraints, decisions, dead ends or current step — only what deterministic passes can prove. That is the cheap artifact, and it is evidence rather than understanding. For the semantic layer: `sctxx extract <ref> --llm cli:<agent>`.
+
 **Goal** (from the first user message, not model-inferred): Port the tiered input budgeting from the memories crate. Keep the crate publishable. [evt 1]
 
 **Current step** — derived (no model ran), from the agent's own plan: add the PriorSummary tier [evt 8]
