@@ -1,0 +1,87 @@
+---
+source: tests/pipeline.rs
+expression: stable(&markdown)
+---
+---
+schema: sctxx.handoff/v1
+sctxx: <version>
+source: <normalized>
+mode: standard
+llm: none
+prompts: {fold_system: 1, fold_user: 1, premap: 1, final_pass: 1, repair: 1, handoff_preamble: 1}
+verification: {repo: none, head: none, commits_since_session: 0, stale: 0, contradicted: 0}
+tokens: <normalized>
+---
+
+# Handoff: Port the tiered input budgeting from the memories crate. Keep the crate
+
+> A different coding agent worked on this task in an earlier session. What follows is a
+> compressed, provenance-linked record of that session, produced by `sctxx`. Use it to build on
+> the work already done instead of repeating it — but treat it as a map, not as ground truth.
+> Run the verify-first commands before you change anything, treat "Hard constraints" as binding
+> user instructions, and expand any `[evt a–b]` pointer you need with `sctxx expand`.
+
+## L0 · Brief
+
+**Goal** (from the first user message, not model-inferred): Port the tiered input budgeting from the memories crate. Keep the crate publishable. [evt 1]
+
+**Next actions** (derived from the ledgers, not model-inferred)
+1. add the PriorSummary tier (plan item, in_progress) [evt 8]
+
+**Verify first**
+- `git status`
+- `git log --oneline -5`
+- `cargo test --all-features`
+
+
+## L1 · Items
+
+### Files touched
+
+| path | ops | last evt | status |
+|---|---|---|---|
+| `src/pipeline/ledgers.rs` | edit×2 read×0 | 5 | exists |
+| `src/pipeline/tail.rs` | edit×2 read×0 | 5 | exists |
+
+### Last known command status
+- `cargo test --all-features` → **ok** (exit 0) [evt 10]
+
+_1 earlier error signature(s) were resolved._
+
+### Plan as last published [evt 8]
+- [x] port serialize_tiered_input (completed)
+- [ ] add the PriorSummary tier (in_progress)
+
+## L2 · Recent activity (masked, evt 0–12)
+
+```text
+[user·harness] <environment_context>
+cwd=/home/dev/sctxx
+</environment_context>  (evt 0)
+[user] Port the tiered input budgeting from the memories crate. Keep the crate publishable.  (evt 1)
+[call shell #call_1] command=["cargo","test","--all-features"]  (evt 3)
+[result #call_1 ERROR exit=1] {"exit_code":1,"output":"error[E0433]: cannot find type `Tier`\n  --> src/vendor/codex/tiered_input.rs:31:5\n","success":false}  (evt 4)
+[call apply_patch #call_2] src/pipeline/ledgers.rs, src/pipeline/tail.rs  (evt 5)
+[result #call_2] [1 lines, 130 bytes: {"exit_code":0,"output":"Success. Updated the following files:\nM src/pipeline/l…]  (evt 6)
+[plan] ☑ port serialize_tiered_input · ▸ add the PriorSummary tier  (evt 8)
+[result #call_3] [{"exit_code":0,"output":"plan updated","success":true}]  (evt 9)
+[call shell #call_4] command=["cargo","test","--all-features"]  (evt 10)
+[result #call_4] [{"exit_code":0,"output":"test result: ok. 178 passed; 0 failed","success":true}]  (evt 11)
+[assistant] Ported and green. The budgeting now fills newest-first per tier.  (evt 12)
+```
+
+## L3 · Retrieval
+
+Source: Codex CLI session `6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8`
+<path>/basic.jsonl`
+
+Expand any pointer:
+```sh
+sctxx expand codex:6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8 <a>..<b> --context 3
+```
+
+Full state including superseded and dropped items: `state.json`. All deterministic ledgers: `ledgers.json`. Run details: `report.json`.
+
+Session source hash: `1161494`
+
+_1 adapter diagnostic(s) recorded; see `report.json`._
