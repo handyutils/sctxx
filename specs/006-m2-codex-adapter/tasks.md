@@ -37,18 +37,20 @@ noted per task. Tasks are checked only after a RED/GREEN loop, the gate, and an 
     stderr notice with exit 0; pre-boundary history leaves the artifact and post-boundary history stays
   - Covers provisional T0605
 
-## Open
-
-- [ ] **T0604** [US1] Pass provider compaction summaries to the fold as low-trust seeds
-  - Why: spec §7.2 says they are seeds; today `ledgers.prior_summaries` only reaches the L1 render note,
-    so the fold never sees what the provider already concluded
+- [x] **T0604** [US1] Pass provider compaction summaries to the fold as low-trust seeds
+  - Why: spec §7.2 says they are seeds; only the masked-row half existed, so a chunk after a
+    compaction boundary saw nothing of what came before it and nothing framed the text as lossy
   - Depends on: T0602
-  - Would touch: `src/pipeline/fold/prompt.rs`, `prompts/fold_user.md` (version bump required by
-    `AGENTS.md` rule 8), pipeline snapshots
-  - RED/GREEN proof: a mock-backend pipeline snapshot showing the seed block in the fold prompt
-  - Deferred deliberately: it changes a versioned prompt and the fold's input contract, which is a
-    bigger slice than this block's compaction work; it should be its own block task with an eval note.
+  - Touches: `prompts/fold_user.md` (version 1 → 2), `src/pipeline/fold/prompt.rs`,
+    `src/pipeline/fold/mod.rs`
+  - RED/GREEN proof: `cargo test --all-features --lib prior_summaries` and
+    `cargo test --all-features --lib the_low_trust_seed`
+  - Acceptance: three most recent summaries, oldest first, 400 tokens each; an unreadable boundary is
+    reported rather than dropped; the rendered prompt carries the "never as evidence" framing
+  - Evidence: [`evidence/T0604.md`](evidence/T0604.md)
   - Covers provisional T0604
+
+## Open
 
 - [ ] **T0605** [US4] `prompts/baseline_codex_compact.md` — Codex's own compaction prompt, verbatim
   - Why: spec §8.6 and Appendix A require it as the `sctxx eval --baseline codex-compact` text

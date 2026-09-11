@@ -12,6 +12,36 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The Codex pin verified, and the fold finally receives provider summaries
+
+Commits: `c8678dedb7a9145014ee8cf3c328e417258394ba`, `58c4315c65485cab1225157adb1b8b6afc64c178`
+
+Two of the three items left open at the v0.1.0 release.
+
+**The vendoring pin is real** (ticket 11). Fetching
+`818f1cca8ccf8899f0f4d59336baebaccf358eed` directly resolves it the opposite way from how the ticket
+was written: the commit exists (dated 2026-09-10, matching the spec), every upstream path in the vendor
+manifest is present at it, and the symbols the ports keep are there — including the `sk-…`/`AKIA…`
+regexes, `serialize_tiered_input` with its 2 000/10 000 caps, and a nine-line `prompt.md`. **This
+corrected a claim made in this repository's own research**: `window_number` on `CompactedItem`,
+`compact_token_budget.rs`, and `compact_remote_v2.rs` are all in the pin, so the windowed-compaction
+behaviour the ADR depends on is grounded in the pinned source rather than in a newer build. The narrow
+real problem was the unversioned `codex/` clone, which `src/vendor/codex/README.md` now labels as a
+reading aid and never as provenance.
+
+**The fold now sees what the provider concluded** (T0604). Spec §7.2 says native compactions are seeds
+and §7.3 renders them as masked rows; only the row half existed. A chunk a few turns after a compaction
+boundary saw nothing of what came before it, and nothing told the model the text was the provider's
+lossy leftovers. `fold_user` version 2 adds a `PRIOR PROVIDER SUMMARIES (LOW TRUST)` block — summaries
+strictly before the chunk, oldest first, the three most recent, 400 tokens each — with an explicit
+"corroborate anything you act on, an item still needs a source range from this chunk" instruction. A
+boundary left encrypted or never written is reported as unreadable rather than dropped.
+
+**What is still not proven:** the seed block is justified by construction and unit tests, not by a
+measured probe score, and its caps are reasoned defaults. Until M5's eval harness exists, prompt
+changes cannot be shown to help rather than distract. That is the next real milestone, and
+`specs/000-wayfinding/map.md` now names it as the destination.
+
 ## 2026-09-11 - v0.1.0 published: crates.io, GitHub Release, and the documentation site
 
 Commits: `0b81048d81808574c86437e4290f89c629cde40e`, `f9591fdf9a9193134bef924d6e4870cadbd9f97b`,
