@@ -12,6 +12,44 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The artifact reads in place, and a cursor bug the tests found
+
+Commits: `d3c854b`
+
+**The loop is closed: find a session, understand it, extract it, read it, hand it on.** An extraction now
+switches the pane to the artifact at L0 with no further keypress (FR-016), `c` returns to it, layers step
+by number or tab, and `o` opens an artifact you already have by path (FR-016a).
+
+**Two design points worth keeping.**
+
+1. **The canvas reads the artifact rather than re-rendering it.** The layers are the headings the
+   renderer wrote, so what is on screen is what is on disk — including for an artifact sctxx did not
+   produce — and the ledgers come along for free because L1 already carries them. A viewer that
+   re-rendered would show what sctxx *would* write, which is a different and less useful thing.
+2. **`[evt a–b]` pointing goes through one implementation, not two.** `pipeline::artifact::expand_ranges`
+   was extracted and `sctxx expand` now calls it, so FR-016's "through the existing `expand` path" is
+   true by construction. `pipeline::artifact::source_reference` also became the single answer to "which
+   session did this artifact come from", which is what lets a colleague's handoff be followed at all.
+
+**A real bug the tests found.** The canvas highlighted the top visible line as the one `enter` acts on,
+which is a rule a reader can see and act on. But a document *shorter* than the window has nothing to
+scroll, so a pointer on its second line was unreachable — permanently. The canvas now has a cursor the
+window follows, and `every_line_is_reachable_even_in_a_document_shorter_than_the_window` is the
+regression test. This is the second time a render test has found something a PTY capture could not:
+the first was a truncated path, this one an unreachable line.
+
+**Confirmed again, for the third time:** a PTY byte-stream capture cannot prove that something is
+*absent*. The canvas footer rendered as `1-4 lyer · ab next · j/k scrol` in a capture — ratatui's diff
+skips cells that already hold the same character, so single letters vanish from the stream while the
+frame is perfect. `TestBackend` render tests are the instrument; the PTY is for "it starts and does not
+crash".
+
+`src/pipeline/artifact.rs` also absorbed the artifact-resolution helpers that used to be private to
+`cli::discover`, along with their tests, so `sctxx expand` and the canvas share both the code and the
+coverage.
+
+406 tests on `--all-features`, 309 on `--no-default-features`.
+
 ## 2026-09-11 - The handoff is verified, and the agents ask to be trusted first
 
 Commits: `b00bea3`
