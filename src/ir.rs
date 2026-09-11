@@ -257,6 +257,12 @@ pub struct NativeCompaction {
     pub evt: EventIdx,
     /// `None` when the provider stored the summary encrypted (hosted Codex).
     pub summary: Option<String>,
+    /// True when this was a *window re-anchor* rather than a history reset: the
+    /// provider replaced its context window but kept the transcript, so nothing
+    /// before this event is lost. Codex writes these as `compacted` items
+    /// carrying a `window_number` (`docs/adr/0002-codex-compaction-algorithm-reuse.md`).
+    #[serde(default)]
+    pub windowed: bool,
 }
 
 /// Something the adapter noticed but did not treat as fatal.

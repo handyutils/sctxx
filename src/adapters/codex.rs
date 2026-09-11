@@ -104,7 +104,7 @@ pub fn parse(source: super::source::SourceText) -> Result<Session> {
                         text: None,
                     },
                 };
-                push(
+                let idx = push(
                     &mut builder,
                     &mut replay,
                     event,
@@ -113,6 +113,17 @@ pub fn parse(source: super::source::SourceText) -> Result<Session> {
                     line,
                     ReplayEvent::Other,
                 );
+                // `window_number` means Codex replaced the context window and
+                // kept the transcript; without it the item is a legacy history
+                // reset. The difference decides where `--since-compact` starts
+                // (`docs/adr/0002-codex-compaction-algorithm-reuse.md`).
+                if payload
+                    .get("window_number")
+                    .and_then(Value::as_u64)
+                    .is_some()
+                {
+                    builder.mark_compaction_windowed(idx);
+                }
             }
             "token_usage_record"
             | "world_state"

@@ -180,6 +180,7 @@ impl SessionBuilder {
             self.native_compactions.push(NativeCompaction {
                 evt: idx,
                 summary: Some(text.clone()),
+                windowed: false,
             });
         }
         if let EventKind::System { subtype, .. } = &kind
@@ -188,6 +189,7 @@ impl SessionBuilder {
             self.native_compactions.push(NativeCompaction {
                 evt: idx,
                 summary: None,
+                windowed: false,
             });
         }
         self.events.push(Event {
@@ -208,6 +210,22 @@ impl SessionBuilder {
             line: line.line,
             message: message.into(),
         });
+    }
+
+    /// Mark the compaction recorded at `evt` as a window re-anchor rather than a
+    /// history reset.
+    ///
+    /// Adapters call this immediately after pushing the event, because only the
+    /// provider's own payload says which kind it was. A no-op when `evt` is not
+    /// a compaction.
+    pub(crate) fn mark_compaction_windowed(&mut self, evt: EventIdx) {
+        if let Some(compaction) = self
+            .native_compactions
+            .iter_mut()
+            .find(|compaction| compaction.evt == evt)
+        {
+            compaction.windowed = true;
+        }
     }
 
     pub(crate) fn note_unknown_kind(&mut self, kind: impl Into<String>) {
@@ -302,6 +320,17 @@ pub(crate) fn i32_field(value: &Value, key: &str) -> Option<i32> {
 /// Render a message `content` field, which providers write either as a plain
 /// string or as a list of typed blocks.
 pub(crate) fn content_text(value: &Value) -> String {
+    content_text_at(value, 0)
+}
+
+/// Session files are untrusted input, so nesting is bounded rather than
+/// trusted: a pathologically deep document must not exhaust the stack.
+const MAX_CONTENT_DEPTH: u8 = 8;
+
+fn content_text_at(value: &Value, depth: u8) -> String {
+    if depth > MAX_CONTENT_DEPTH {
+        return String::new();
+    }
     match value {
         Value::String(text) => text.clone(),
         // A single typed block, e.g. `{"type":"text","text":"..."}`. Reading
@@ -309,16 +338,25 @@ pub(crate) fn content_text(value: &Value) -> String {
         Value::Object(_) => str_field(value, "text")
             .or_else(|| str_field(value, "thinking"))
             .map(str::to_string)
+            // A message envelope nests its blocks under `content`. Codex's
+            // `compacted.replacement_history` is a list of these, so without
+            // this step a local compaction summary would be read as empty.
+            .or_else(|| {
+                let nested = content_text_at(value.get("content")?, depth + 1);
+                (!nested.trim().is_empty()).then_some(nested)
+            })
             .unwrap_or_default(),
         Value::Array(blocks) => {
             let mut out = String::new();
             for block in blocks {
                 let text = match block {
-                    Value::String(text) => Some(text.clone()),
-                    Value::Object(_) => str_field(block, "text").map(str::to_string),
-                    _ => None,
+                    Value::String(text) => text.clone(),
+                    // Recurse: a block may itself be a message envelope whose
+                    // text is nested under `content`.
+                    Value::Object(_) => content_text_at(block, depth + 1),
+                    _ => String::new(),
                 };
-                if let Some(text) = text {
+                if !text.is_empty() {
                     if !out.is_empty() {
                         out.push('\n');
                     }
@@ -424,6 +462,34 @@ mod tests {
             "a\nb"
         );
         assert_eq!(content_text(&Value::Null), "");
+    }
+
+    #[test]
+    fn a_list_of_message_envelopes_renders_its_nested_text() {
+        // The shape of Codex's `compacted.replacement_history`, observed in a
+        // real rollout: the summary lives two levels down, not in `message`.
+        let history = serde_json::json!([
+            {"type": "message", "role": "user",
+             "content": [{"type": "input_text", "text": "find and remove the stray installer"}]},
+            {"type": "message", "role": "assistant",
+             "content": [{"type": "output_text", "text": "Removed it and verified."}]}
+        ]);
+        let rendered = content_text(&history);
+        assert!(
+            rendered.contains("find and remove the stray installer"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("Removed it and verified."), "{rendered}");
+    }
+
+    #[test]
+    fn deeply_nested_content_is_bounded_rather_than_trusted() {
+        // A hostile or corrupt session file must not exhaust the stack.
+        let mut value = serde_json::json!({"text": "bottom"});
+        for _ in 0..500 {
+            value = serde_json::json!({ "content": [value] });
+        }
+        assert_eq!(content_text(&value), "");
     }
 
     #[test]

@@ -29,6 +29,7 @@ Never commit a session file straight out of `~/.claude`, `~/.codex`, or `~/.pi`.
 | `codex/basic.jsonl` | `session_meta`, harness context as a user message, developer message, reasoning, argv-array shell, `apply_patch`, `update_plan` |
 | `codex/rollback.jsonl` | `thread_rolled_back` undoing the newest user turn and its work |
 | `codex/ask-and-compaction.jsonl` | `request_user_input` paired into one human answer, a `compacted` line, an unknown item type |
+| `codex/windowed-compaction.jsonl` | Both compaction kinds: a legacy `compacted` reset with `replacement_history`, and a token-budget `compacted` window marker (`window_number`, empty `message`) |
 | `pi/basic.jsonl` | A v3 tree, `bashExecution`, `toolCall`/`toolResult`, `modelChange`, a label |
 | `pi/branch.jsonl` | An abandoned branch with a `branchSummary`; only the live path is active |
 | `pi/v1-linear.jsonl` | A v1 linear session with a `compactionSummary` |
@@ -38,5 +39,5 @@ Never commit a session file straight out of `~/.claude`, `~/.codex`, or `~/.pi`.
 | Provider | Version the shapes were modelled on |
 | --- | --- |
 | Claude Code | `2.1.7` (field names recorded in the fixtures themselves) |
-| Codex CLI | `0.58.0`, rollout format at upstream commit `818f1cc` |
+| Codex CLI | `0.58.0`, rollout format at upstream commit `818f1cc`; `windowed-compaction.jsonl` models the ≥0.120 `CompactedItem` shape (`window_number`, `first_window_id`, `window_id`) — see `specs/000-wayfinding/issues/11-codex-vendoring-pin.md` |
 | Pi | session format v1 and v3, per the published `session-format.md` |

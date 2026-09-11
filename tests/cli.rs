@@ -97,6 +97,52 @@ fn quiet_silences_stderr_without_touching_stdout() {
 }
 
 #[test]
+fn since_compact_starts_at_the_provider_boundary() {
+    let output = sctxx()
+        .args(["extract"])
+        .arg(fixtures().join("codex/windowed-compaction.jsonl"))
+        .args(["--llm", "none", "--no-verify", "--since-compact"])
+        .output()
+        .expect("run");
+    assert!(output.status.success(), "{}", stderr_of(&output));
+
+    // The run says where it started, because a caller cannot tell otherwise.
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("[since-compact]"), "{stderr}");
+    assert!(
+        stderr.contains("evt 1"),
+        "the legacy reset at evt 1 should win over the window marker: {stderr}"
+    );
+
+    let stdout = stdout_of(&output);
+    // The turn before the reset is outside the artifact...
+    assert!(
+        !stdout.contains("start the migration"),
+        "pre-boundary history leaked in: {stdout}"
+    );
+    // ...and the turn after it is inside.
+    assert!(stdout.contains("now do the second half"), "{stdout}");
+}
+
+#[test]
+fn since_compact_is_a_notice_not_a_failure_when_nothing_compacted() {
+    let output = sctxx()
+        .args(["extract"])
+        .arg(fixtures().join("codex/basic.jsonl"))
+        .args(["--llm", "none", "--no-verify", "--since-compact"])
+        .output()
+        .expect("run");
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    assert!(
+        stderr_of(&output).contains("has no provider compaction"),
+        "{}",
+        stderr_of(&output)
+    );
+    // The whole session is still extracted.
+    assert!(stdout_of(&output).contains("sctxx.handoff/v1"));
+}
+
+#[test]
 fn extract_to_a_directory_writes_five_files_and_prints_the_artifact_path() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join(".sctxx");

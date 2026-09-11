@@ -24,7 +24,7 @@ pub mod segment;
 
 use crate::adapters::{self, discovery::SessionSummary};
 use crate::error::{Error, Result};
-use crate::ir::{AgentKind, Session};
+use crate::ir::{AgentKind, EventIdx, Session};
 use crate::llm::Selection;
 use crate::vendor::codex::secrets::RedactMode;
 use serde::Serialize;
@@ -77,6 +77,7 @@ pub struct ExtractOptions {
     pub strict: bool,
     pub layers: render::Layers,
     pub include_sidechains: bool,
+    pub since_compact: bool,
     pub keep_reasoning: bool,
     pub keep_system: bool,
     pub redact: RedactMode,
@@ -98,6 +99,7 @@ impl Default for ExtractOptions {
             strict: false,
             layers: render::Layers::default(),
             include_sidechains: false,
+            since_compact: false,
             keep_reasoning: false,
             keep_system: false,
             redact: RedactMode::Default,
@@ -198,6 +200,35 @@ impl Extraction {
 /// the caller decides how to surface them (text or NDJSON on stderr).
 pub type Progress<'a> = &'a mut dyn FnMut(&str, &str);
 
+/// Where a `--since-compact` run starts.
+///
+/// A *legacy* compaction is a real history reset: everything before it is gone
+/// from the provider's own view, so the newest one is the honest starting
+/// point. A *window re-anchor* kept the transcript, so the earliest one is the
+/// point after which the session is still complete. Prefer a reset when the
+/// session has one; otherwise use the earliest re-anchor.
+///
+/// Returns `None` when the provider never compacted, in which case the whole
+/// session is the correct answer.
+///
+/// See `docs/adr/0002-codex-compaction-algorithm-reuse.md`.
+fn since_compact_boundary(session: &Session) -> Option<EventIdx> {
+    let reset = session
+        .native_compactions
+        .iter()
+        .filter(|compaction| !compaction.windowed)
+        .map(|compaction| compaction.evt)
+        .max();
+    reset.or_else(|| {
+        session
+            .native_compactions
+            .iter()
+            .filter(|compaction| compaction.windowed)
+            .map(|compaction| compaction.evt)
+            .min()
+    })
+}
+
 /// Run the pipeline for an already-resolved session file.
 pub fn extract(
     summary: &SessionSummary,
@@ -231,7 +262,7 @@ pub fn extract(
         Vec::new()
     };
 
-    let session = if sidechains.is_empty() {
+    let mut session = if sidechains.is_empty() {
         adapters::parse_as(agent, source, options.max_bad_line_rate)?
     } else {
         adapters::parse_with_sidechains(agent, source, sidechains, options.max_bad_line_rate)?
@@ -245,6 +276,33 @@ pub fn extract(
             session.user_turns()
         ),
     );
+
+    // `--since-compact` (spec §3.4): keep the transcript from the newest
+    // provider compaction boundary onward, retaining that boundary's own event
+    // as the low-trust seed. `events` is untouched, so every `[evt a-b]`
+    // pointer still resolves and `expand` can still reach the earlier history.
+    if options.since_compact {
+        match since_compact_boundary(&session) {
+            Some(boundary) => {
+                let before = session.active.len();
+                session.active.retain(|idx| *idx >= boundary);
+                session
+                    .native_compactions
+                    .retain(|compaction| compaction.evt >= boundary);
+                progress(
+                    "since-compact",
+                    &format!(
+                        "starting at evt {boundary}: {} of {before} active events kept",
+                        session.active.len()
+                    ),
+                );
+            }
+            None => progress(
+                "since-compact",
+                "--since-compact was given but this session has no provider compaction; using the whole session",
+            ),
+        }
+    }
 
     // S1 — deterministic ledgers.
     let ledgers = ledgers::build(&session, options.redact);
@@ -469,5 +527,30 @@ mod tests {
             assert_eq!(Mode::parse(value).expect(value).label(), value);
         }
         assert_eq!(Mode::parse("turbo").expect_err("reject").exit_code(), 2);
+    }
+
+    #[test]
+    fn since_compact_prefers_a_reset_and_falls_back_to_the_earliest_window() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/codex/windowed-compaction.jsonl");
+        let session = crate::adapters::parse_path(&path, 0.5).expect("the fixture parses");
+
+        // A legacy reset (evt 1) beats a later window marker (evt 3): after a
+        // real reset, everything before it is gone from the provider's view.
+        assert!(session.native_compactions.len() == 2);
+        assert_eq!(since_compact_boundary(&session), Some(1));
+
+        // With window markers only, the earliest one is where the transcript is
+        // still complete.
+        let mut windowed_only = session.clone();
+        windowed_only
+            .native_compactions
+            .retain(|compaction| compaction.windowed);
+        assert_eq!(since_compact_boundary(&windowed_only), Some(3));
+
+        // A session the provider never compacted keeps everything.
+        let mut never_compacted = session.clone();
+        never_compacted.native_compactions.clear();
+        assert_eq!(since_compact_boundary(&never_compacted), None);
     }
 }

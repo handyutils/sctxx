@@ -392,6 +392,7 @@ export const commands = [
       ["--repo <PATH>", "Repository to reconcile against"],
       ["--strict", "Exit 7 if the repository contradicts the artifact"],
       ["--include-sidechains", "Include subagent transcripts"],
+      ["--since-compact", "Start at the provider's last compaction boundary, using its summary as a low-trust seed"],
       ["--redact strict", "Also mask emails, private IPs, high-entropy strings"],
       ["--dry-run", "Print the plan and estimated tokens, then exit"],
     ],

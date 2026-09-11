@@ -96,6 +96,11 @@ pub struct ExtractArgs {
     /// Search every project when resolving `last`.
     #[arg(long)]
     any_project: bool,
+
+    /// Start from the newest provider compaction boundary, keeping that
+    /// boundary's summary as a low-trust seed.
+    #[arg(long)]
+    since_compact: bool,
 }
 
 pub fn run(args: &ExtractArgs, global: &GlobalArgs) -> Result<i32> {
@@ -120,6 +125,7 @@ pub fn run(args: &ExtractArgs, global: &GlobalArgs) -> Result<i32> {
         strict: args.strict,
         layers,
         include_sidechains: args.include_sidechains,
+        since_compact: args.since_compact,
         keep_reasoning: args.keep_reasoning,
         keep_system: args.keep_system,
         redact,

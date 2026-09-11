@@ -57,7 +57,8 @@ expression: summarize(& session)
   "native_compactions": [
     {
       "evt": 0,
-      "summary": "Earlier work: migrated the store to sqlite."
+      "summary": "Earlier work: migrated the store to sqlite.",
+      "windowed": false
     }
   ],
   "user_turns": 1

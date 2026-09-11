@@ -1,0 +1,82 @@
+---
+source: tests/adapters.rs
+expression: summarize(& session)
+---
+{
+  "active": [
+    {
+      "detail": "start the migration",
+      "evt": 0,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Earlier: chose cargo-dist for six targets; npm deferred.",
+      "evt": 1,
+      "kind": "native_compaction_summary",
+      "stream": 0
+    },
+    {
+      "detail": "Started the migration.",
+      "evt": 2,
+      "kind": "assistant_text",
+      "stream": 0
+    },
+    {
+      "detail": "native_compaction: ",
+      "evt": 3,
+      "kind": "system",
+      "stream": 0
+    },
+    {
+      "detail": "now do the second half",
+      "evt": 4,
+      "kind": "user_message",
+      "stream": 0
+    },
+    {
+      "detail": "Second half done.",
+      "evt": 5,
+      "kind": "assistant_text",
+      "stream": 0
+    }
+  ],
+  "active_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "agent": "codex",
+  "diagnostics": [],
+  "events": 6,
+  "id": "aa11bb22-cc33-dd44-ee55-ff6677889900",
+  "kind_counts": {
+    "assistant_text": 2,
+    "native_compaction_summary": 1,
+    "system": 1,
+    "user_message": 2
+  },
+  "meta": {
+    "agent_version": "0.120.0",
+    "cwd": "/home/dev/sctxx",
+    "ended_at": "2026-09-01T09:00:00.000Z",
+    "git_branch": "main",
+    "started_at": "2026-09-01T08:00:00.000Z"
+  },
+  "native_compactions": [
+    {
+      "evt": 1,
+      "summary": "Earlier: chose cargo-dist for six targets; npm deferred.",
+      "windowed": false
+    },
+    {
+      "evt": 3,
+      "summary": null,
+      "windowed": true
+    }
+  ],
+  "user_turns": 2
+}

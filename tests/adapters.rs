@@ -127,6 +127,7 @@ snapshot_fixture!(
 snapshot_fixture!(codex_basic, "codex/basic.jsonl");
 snapshot_fixture!(codex_rollback, "codex/rollback.jsonl");
 snapshot_fixture!(codex_ask_and_compaction, "codex/ask-and-compaction.jsonl");
+snapshot_fixture!(codex_windowed_compaction, "codex/windowed-compaction.jsonl");
 snapshot_fixture!(pi_basic, "pi/basic.jsonl");
 snapshot_fixture!(pi_branch, "pi/branch.jsonl");
 snapshot_fixture!(pi_v1_linear, "pi/v1-linear.jsonl");
@@ -199,6 +200,37 @@ fn a_rollback_drops_the_undone_turn_and_its_work() {
     assert!(
         !joined.contains("src/cli/xml.rs"),
         "rolled-back work survived: {joined}"
+    );
+}
+
+#[test]
+fn a_codex_window_marker_is_not_a_history_reset() {
+    let session = parse("codex/windowed-compaction.jsonl");
+    let kinds: Vec<(u32, bool)> = session
+        .native_compactions
+        .iter()
+        .map(|compaction| (compaction.evt, compaction.windowed))
+        .collect();
+    // evt 1 is a legacy `compacted` item: a real history reset. evt 3 carries a
+    // `window_number`, so Codex only re-anchored its context window and the
+    // transcript before it is still complete (ADR 0002).
+    assert_eq!(
+        kinds,
+        vec![(1, false), (3, true)],
+        "{:?}",
+        session.native_compactions
+    );
+    // A window marker written by token-budget compaction has no readable text,
+    // so it is a boundary event rather than a summary.
+    assert!(session.native_compactions[0].summary.is_some());
+    assert!(
+        session.native_compactions[1].summary.is_none(),
+        "an empty `message` must not become a summary"
+    );
+    // Neither kind truncates the active branch: sctxx keeps the full history.
+    assert_eq!(
+        session.active,
+        (0..session.events.len() as u32).collect::<Vec<u32>>()
     );
 }
 

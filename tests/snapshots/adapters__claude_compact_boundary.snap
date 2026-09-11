@@ -73,7 +73,8 @@ expression: summarize(& session)
   "native_compactions": [
     {
       "evt": 2,
-      "summary": "Prior session summary: the auth migration moved sessions to JWT. Two tests still fail."
+      "summary": "Prior session summary: the auth migration moved sessions to JWT. Two tests still fail.",
+      "windowed": false
     }
   ],
   "user_turns": 2

@@ -77,7 +77,8 @@ expression: summarize(& session)
   "native_compactions": [
     {
       "evt": 3,
-      "summary": "Earlier: chose cargo-dist for six targets; npm deferred."
+      "summary": "Earlier: chose cargo-dist for six targets; npm deferred.",
+      "windowed": false
     }
   ],
   "user_turns": 2
