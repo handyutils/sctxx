@@ -886,10 +886,25 @@ fn render_items(artifact: &Artifact<'_>, budget: usize) -> String {
     out.push_str(&render_ledgers(artifact));
 
     if !omitted.is_empty() {
+        // The ids are capped, and this is why. Listing every omitted id makes
+        // the layer's size linear in the number of items the budget just
+        // excluded, so `--budget` stops bounding the artifact: at a page of 20
+        // ids the footer is longer than the content it replaced. A bounded
+        // pointer with a count is the honest form — the reader is told how many
+        // there are and where the rest live.
+        const OMITTED_STUBS: usize = 12;
+        let shown: Vec<&str> = omitted.iter().take(OMITTED_STUBS).copied().collect();
+        let more = omitted.len().saturating_sub(shown.len());
+        let tail = if more > 0 {
+            format!(" and {more} more")
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "\n_{} item(s) omitted for the artifact budget: {}. See `state.json`._\n",
+            "\n_{} item(s) omitted for the artifact budget: {}{}. See `sctxx show state.json`._\n",
             omitted.len(),
-            omitted.join(", ")
+            shown.join(", "),
+            tail
         ));
     }
     out

@@ -35,6 +35,10 @@ bump and a compatibility note.
   never refused.
 - **`--budget` did not bound L0.** `--budget 400` emitted a 1,200-token brief: the brief had its own
   fixed ceiling and three of its blocks were charged to no budget at all.
+- **`--budget` did not bound the artifact either: the omitted-item footer listed every excluded id**,
+  making the layer's size linear in the number of items the budget had just excluded. ARC
+  (arXiv:2607.25066, Proposition 9) proves no constant can bound a prompt containing such a list. The
+  footer now shows at most twelve ids and a count.
 - Rendering a value the ledger had already truncated produced nested markers — `…/scripts/…44 tokens
   truncated…/build.mjs` — describing a truncation the reader cannot see, inside a line that was then
   truncated again. Text is now cut at the first marker.
