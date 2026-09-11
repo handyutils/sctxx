@@ -9,6 +9,18 @@ bump and a compatibility note.
 
 ### Added
 
+- **`h` in `sctxx --tui` hands the work to another agent.** It lists the agents installed on this
+  machine with the version each reported and whether the seeding channel was verified on it, shows the
+  exact command that will run, and — only on a second, explicit confirmation — hands the terminal over
+  so the new session starts with the handoff already in its first turn.
+  The artifact travels as a **path**, never as content on a command line, and the pointer sentence is
+  fixed prose plus that path, so nothing from a session can become part of a command. An agent at a
+  version whose seeding was never verified gets the fallback route with no flags at all, and the pane
+  says so rather than guessing.
+  The launched agent is a full-screen application, so it gets the whole terminal rather than a pane
+  inside the TUI, which also means no PTY or terminal-emulator dependency
+  ([ADR 0006](docs/adr/0006-hand-over-the-terminal-to-the-launched-agent.md)).
+
 - **`sctxx doctor` reports the coding agents a handoff can launch**, with the version each one
   answered and whether that version is one the seeding channel was verified on. An agent installed at
   an unverified version is reported as installed *with the fallback named*, never quietly treated as

@@ -13,7 +13,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 use super::browser::Browser;
 use super::form::Form;
 use super::preview::LedgerPreview;
-use super::{App, Mode, PreviewState, RunState};
+use super::{App, HandoffState, Mode, PreviewState, RunState};
 use crate::VERSION;
 
 /// Accent colours kept in one place so the two screens cannot drift.
@@ -42,9 +42,12 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
         .split(rows[1]);
     list(frame, body[0], &app.browser);
-    match &app.form {
-        Some(form) => extract_pane(frame, body[1], form, &app.run),
-        None => preview(frame, body[1], &app.browser, app.preview_state()),
+    // The handoff takes the pane when it is open: it is the last step, and it
+    // needs the room for the command it is about to run.
+    match (&app.handoff, &app.form) {
+        (Some(state), _) => handoff_pane(frame, body[1], app, state),
+        (None, Some(form)) => extract_pane(frame, body[1], form, &app.run),
+        (None, None) => preview(frame, body[1], &app.browser, app.preview_state()),
     }
 
     footer(frame, rows[2], &app.browser, app.mode);
@@ -334,6 +337,113 @@ fn extract_pane(frame: &mut Frame, area: Rect, form: &Form, run: &RunState) {
     );
 }
 
+/// The handoff: choose an agent, then confirm exactly what will run.
+///
+/// The two steps are the requirement, not a flourish. Extraction never starts
+/// another agent as a side effect, and the command is on screen before the
+/// terminal is handed over (FR-021, FR-021b).
+fn handoff_pane(frame: &mut Frame, area: Rect, app: &App, state: &HandoffState) {
+    let block = Block::default().borders(Borders::ALL).title(" handoff ");
+    let width = area.width.saturating_sub(2) as usize;
+    let mut lines = Vec::new();
+
+    if let RunState::Done(outcome) = &app.run {
+        lines.extend(wrapped_field(
+            "handoff",
+            &outcome.handoff.display().to_string(),
+            width,
+        ));
+    }
+    if let Some(note) = &app.handoff_note {
+        lines.push(Line::styled(format!(" {note}"), Style::default().fg(WARN)));
+    }
+    lines.push(Line::default());
+
+    match state {
+        HandoffState::Choosing => {
+            lines.push(Line::styled(
+                " continue this in a new session of…",
+                Style::default().fg(ACCENT),
+            ));
+            match &app.agents {
+                None => lines.push(Line::styled(
+                    " looking for the agents installed here…",
+                    Style::default().fg(DIM),
+                )),
+                Some(agents) if agents.iter().all(|agent| !agent.installed()) => {
+                    // Never hidden silently: say what is missing and what to do.
+                    lines.push(Line::styled(
+                        " none of claude, codex, or pi is on PATH",
+                        Style::default().fg(WARN),
+                    ));
+                    lines.push(Line::styled(
+                        " install one, or read the handoff yourself",
+                        Style::default().fg(DIM),
+                    ));
+                }
+                Some(agents) => {
+                    for (index, agent) in agents.iter().enumerate() {
+                        let focused = index == app.handoff_cursor;
+                        let marker = if focused { "▌" } else { " " };
+                        let text = format!(
+                            "{marker} {:<12} {}",
+                            agent.label,
+                            truncate(&agent.status(), 120)
+                        );
+                        let style = if focused {
+                            Style::default()
+                                .bg(ACCENT)
+                                .fg(Color::Black)
+                                .add_modifier(Modifier::BOLD)
+                        } else if agent.installed() {
+                            Style::default()
+                        } else {
+                            Style::default().fg(DIM)
+                        };
+                        lines.push(Line::styled(truncate(&text, 240), style));
+                    }
+                }
+            }
+        }
+        HandoffState::Confirming(launch) => {
+            lines.push(Line::styled(
+                " this exact command will run",
+                Style::default().fg(ACCENT),
+            ));
+            lines.push(field("agent", launch.agent.to_string()));
+            lines.extend(wrapped_field("route", launch.route.label(), width));
+            lines.extend(wrapped_field(
+                "cwd",
+                &launch.cwd.display().to_string(),
+                width,
+            ));
+            if launch.route.is_fallback() {
+                lines.push(Line::styled(
+                    " the detected version is not one the seeding channel was verified on,",
+                    Style::default().fg(WARN),
+                ));
+                lines.push(Line::styled(
+                    " so the agent gets the pointer and the directory, and no flags.",
+                    Style::default().fg(WARN),
+                ));
+            }
+            lines.push(Line::default());
+            // The exact command, whole. Broken across lines by us rather than
+            // left to a wrapper that might quietly drop the end of a path.
+            for chunk in wrap_hard(&launch.display, width.saturating_sub(1)) {
+                lines.push(Line::raw(format!(" {chunk}")));
+            }
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
 /// What the extraction pane says about the run.
 fn run_lines(run: &RunState) -> Vec<Line<'static>> {
     match run {
@@ -411,7 +521,10 @@ fn footer(frame: &mut Frame, area: Rect, browser: &Browser, mode: Mode) {
     let keys = match mode {
         Mode::Search => " type to filter · enter keep · esc clear ",
         Mode::Form => " ↑/↓ field · space toggle · ←/→ choose · enter run · esc back ",
-        Mode::Browse => " j/k move · / search · a agent · r date · p project · e extract · q quit ",
+        Mode::Handoff => " ↑/↓ agent · enter choose · y run · esc back ",
+        Mode::Browse => {
+            " j/k move · / search · a agent · r date · p project · e extract · h handoff · q quit "
+        }
     };
     let lines = vec![
         Line::styled(
@@ -428,9 +541,64 @@ fn footer(frame: &mut Frame, area: Rect, browser: &Browser, mode: Mode) {
 
 fn field(name: &str, value: String) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!(" {name:<7}"), Style::default().fg(DIM)),
+        Span::styled(format!(" {name:<8}"), Style::default().fg(DIM)),
         Span::raw(value),
     ])
+}
+
+/// A field whose value is long enough to need breaking, wrapped to `width`.
+fn wrapped_field(name: &str, value: &str, width: usize) -> Vec<Line<'static>> {
+    wrap_hard(value, width.saturating_sub(9))
+        .into_iter()
+        .enumerate()
+        .map(|(index, chunk)| {
+            if index == 0 {
+                field(name, chunk)
+            } else {
+                sub(chunk)
+            }
+        })
+        .collect()
+}
+
+/// Wrap text to `width`, breaking a token longer than the width.
+///
+/// The pane must not rely on the renderer's wrapper to show an *exact* command:
+/// a filesystem path contains no spaces, and a command silently shortened at the
+/// edge of the pane would misrepresent what is about to run (FR-021).
+fn wrap_hard(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split(' ').flat_map(|word| hard_split(word, width)) {
+        if line.is_empty() {
+            line = word;
+        } else if line.chars().count() + 1 + word.chars().count() <= width {
+            line.push(' ');
+            line.push_str(&word);
+        } else {
+            lines.push(std::mem::take(&mut line));
+            line = word;
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// Break one token across lines when it cannot fit on one.
+fn hard_split(word: &str, width: usize) -> Vec<String> {
+    if width == 0 || word.chars().count() <= width {
+        return vec![word.to_string()];
+    }
+    word.chars()
+        .collect::<Vec<char>>()
+        .chunks(width)
+        .map(|chunk| chunk.iter().collect())
+        .collect()
 }
 
 /// A value under the field column, for the lines that belong to the one above.
@@ -457,6 +625,7 @@ fn truncate(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use crate::adapters::discovery::SessionSummary;
+    use crate::agents::Agent;
     use crate::cli::GlobalArgs;
     use crate::tui::PreviewState;
     use ratatui::Terminal;
@@ -500,6 +669,25 @@ mod tests {
             diagnostics: 2,
             diagnostic: Some("line 91: unexpected end of JSON".into()),
         }
+    }
+
+    /// The screen with its line breaks removed, for asserting on a value the
+    /// pane wraps at a space.
+    fn unwrapped(text: &str) -> String {
+        text.chars()
+            .filter(|character| *character != '\n')
+            .collect()
+    }
+
+    /// The screen with everything that is not part of a path or a flag removed,
+    /// for asserting on a value the pane deliberately breaks mid-token.
+    ///
+    /// Borders and padding would otherwise land in the middle of a broken path
+    /// and split the very thing under test.
+    fn squashed(text: &str) -> String {
+        text.chars()
+            .filter(|character| character.is_ascii_alphanumeric() || "/._-'".contains(*character))
+            .collect()
     }
 
     /// Render the whole screen and return it as text, so a test asserts on what
@@ -680,6 +868,156 @@ mod tests {
         assert!(text.contains("running"), "{text}");
         assert!(text.contains("fold"), "{text}");
         assert!(text.contains("chunk 3 of 9"), "{text}");
+    }
+
+    /// An app that has extracted and is looking for an agent to hand off to.
+    fn handoff_app() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let handoff = dir.path().join("handoff.md");
+        std::fs::write(&handoff, "# handoff\n").expect("write");
+
+        let mut app = app();
+        app.run = RunState::Done(Box::new(crate::tui::work::Outcome {
+            reference: "claude:1367d688".into(),
+            handoff: handoff.clone(),
+            paths: vec![handoff],
+            warnings: Vec::new(),
+            git_warning: None,
+            live_events: 1,
+            total_events: 2,
+        }));
+        app.agents = Some(vec![
+            Agent {
+                id: "claude",
+                label: "Claude Code",
+                program: Some(PathBuf::from("/usr/local/bin/claude")),
+                version: Some("2.1.268".into()),
+                store: PathBuf::from("/tmp/store"),
+                store_exists: false,
+                verified_against: "2.1.268",
+            },
+            Agent {
+                id: "codex",
+                label: "Codex CLI",
+                program: None,
+                version: None,
+                store: PathBuf::from("/tmp/store"),
+                store_exists: false,
+                verified_against: "0.153.4",
+            },
+        ]);
+        app.handoff = Some(HandoffState::Choosing);
+        app.mode = Mode::Handoff;
+        (dir, app)
+    }
+
+    #[test]
+    fn a_long_token_is_broken_rather_than_lost() {
+        // The bug this exists for: a path has no spaces, and the pane used to
+        // keep the first line of it and drop the rest.
+        let path = "/var/folders/4y/d6rxwlnj3jj0t_6xtjbkwt1w0000gn/T/.tmp70R9wP/handoff.md";
+        let wrapped = wrap_hard(path, 30);
+        assert!(
+            wrapped.len() > 1,
+            "a 70-character path must break at width 30"
+        );
+        assert_eq!(
+            wrapped.concat(),
+            path,
+            "breaking must not lose or reorder a character"
+        );
+        assert!(wrapped.iter().all(|line| line.chars().count() <= 30));
+    }
+
+    #[test]
+    fn wrapping_keeps_words_whole_when_it_can() {
+        let wrapped = wrap_hard("read the handoff at /tmp/handoff.md", 20);
+        assert_eq!(wrapped[0], "read the handoff at");
+        assert_eq!(
+            wrapped.concat().replace(" ", ""),
+            "readthehandoffat/tmp/handoff.md".replace(" ", "")
+        );
+        assert!(wrapped.iter().all(|line| line.chars().count() <= 20));
+        // A degenerate width still returns the text rather than nothing.
+        assert_eq!(wrap_hard("hello", 0), vec!["hello".to_string()]);
+        assert_eq!(hard_split("abc", 0), vec!["abc".to_string()]);
+    }
+
+    #[test]
+    fn the_picker_shows_every_agent_and_why_it_can_or_cannot_be_used() {
+        let (_dir, app) = handoff_app();
+        let text = screen(&app, 150, 44);
+        assert!(text.contains("handoff"), "{text}");
+        assert!(text.contains("Claude Code"), "{text}");
+        assert!(text.contains("seeding verified on this version"), "{text}");
+        // An agent that is not installed is shown, with the reason — never
+        // hidden silently (FR-017).
+        assert!(text.contains("Codex CLI"), "{text}");
+        assert!(text.contains("not installed"), "{text}");
+        assert!(
+            squashed(&text).contains("handoff.md"),
+            "the artifact is named in full:\n{text}"
+        );
+    }
+
+    #[test]
+    fn the_confirmation_shows_the_exact_command_before_it_runs() {
+        let (_dir, mut app) = handoff_app();
+        let launch = app.build_launch(0).expect("a launch");
+        app.handoff = Some(HandoffState::Confirming(Box::new(launch)));
+
+        let text = screen(&app, 150, 44);
+        let flat = squashed(&text);
+        assert!(text.contains("this exact command will run"), "{text}");
+        assert!(flat.contains("--append-system-prompt-file"), "{text}");
+        assert!(flat.contains("/usr/local/bin/claude"), "{text}");
+        assert!(flat.contains("systempromptfromtheartifact'spath"), "{text}");
+        assert!(flat.contains("Readthehandoffat"), "{text}");
+        // The whole path, not a prefix of it.
+        assert!(
+            flat.contains("handoff.md"),
+            "the command must be complete:\n{text}"
+        );
+        // An agent whose version was verified is not warned about.
+        assert!(!text.contains("no flags"), "{text}");
+    }
+
+    #[test]
+    fn an_unverified_version_says_no_flags_will_be_used() {
+        let (_dir, mut app) = handoff_app();
+        // The same agent, detected at a version ADR 0004 never checked.
+        if let Some(agents) = app.agents.as_mut()
+            && let Some(claude) = agents.first_mut()
+        {
+            claude.version = Some("9.9.9".into());
+        }
+        let launch = app.build_launch(0).expect("a launch");
+        assert!(launch.route.is_fallback());
+        app.handoff = Some(HandoffState::Confirming(Box::new(launch)));
+
+        let text = screen(&app, 150, 44);
+        let flat = unwrapped(&text);
+        assert!(flat.contains("not one the seeding channel"), "{text}");
+        assert!(text.contains("no flags"), "{text}");
+        // And the flag really is absent from the command.
+        assert!(!flat.contains("--append-system-prompt-file"), "{text}");
+    }
+
+    #[test]
+    fn a_handoff_with_no_agent_installed_says_what_to_do() {
+        let (_dir, mut app) = handoff_app();
+        if let Some(agents) = app.agents.as_mut() {
+            for agent in agents.iter_mut() {
+                agent.program = None;
+                agent.version = None;
+            }
+        }
+        let text = screen(&app, 150, 44);
+        assert!(
+            text.contains("none of claude, codex, or pi is on PATH"),
+            "{text}"
+        );
+        assert!(text.contains("install one"), "{text}");
     }
 
     #[test]

@@ -115,6 +115,41 @@ task says which library function is being wrapped, not reimplemented.
     is named after the mistake agentman makes, and a binary with no readable version is installed but
     unverified rather than silently ready
 
+- [x] **T2412** [FR-018, FR-019, ADR 0004] Seeding templates per agent, version-pinned, with a fallback
+  - Why: the last mile, and the reason the block exists. ADR 0004 fixes the shape: the artifact travels
+    as a **path**, never inline, and every row falls back to the cwd route
+  - Depends on: T2411, T2409
+  - Touches: `src/agents/seeding.rs` (new), `src/agents/mod.rs` (`is_known_agent`, the allowlist),
+    `src/tui/{mod,ui,work}.rs`
+  - RED/GREEN proof: `cargo test --all-features --lib agents::seeding` — 14 tests
+  - Acceptance: Claude Code `--append-system-prompt-file <path>`, Pi `--append-system-prompt <path>`,
+    Codex a positional pointer, each asserted argument by argument; each row carries the version an
+    agent is compared against; an unverified version selects the cwd fallback and the pane **says so**;
+    **the artifact's contents never cross argv** — asserted directly
+  - Evidence: `running_a_launch_passes_the_argv_through_untouched` runs a real process and asserts the
+    argv arrived as exactly three arguments with the pointer whole, which is only true because there is
+    no shell in the path
+  - Note: ADR 0004 also specifies the headless form (`codex exec -`, artifact on stdin). It is not
+    implemented: nothing consumes it yet, and the terminal handover is the interactive path. Recorded
+    rather than written speculatively
+
+- [x] **T2413** [FR-020, FR-021, SC-006] Launch safety: no shell, pre-checked paths, allowlist, cwd
+  - Why: transcript content is data and must never become part of a command line, and Claude Code fails
+    **lazily and silently** on an unreadable file flag — so sctxx validates what the agent will not
+  - Depends on: T2412
+  - Touches: `src/agents/seeding.rs`, `src/tui/mod.rs` (the two-step confirm, `Step::HandOver`)
+  - RED/GREEN proof: `cargo test --all-features --lib no_text_from_a_session_reaches_a_process_argument`
+    (SC-006's planted string) and the four launch-refusal tests
+  - Acceptance: the child is spawned with an argument vector — no shell anywhere; a missing, unreadable,
+    or non-file handoff fails **before** anything is spawned, with the reason in the pane; the allowlist
+    is structural (`is_known_agent`, with a test that `rm` cannot be launched); the exact command is on
+    screen before the terminal is handed over; cwd is the session's directory when it still exists and a
+    usable directory when it does not
+  - Evidence: `a_handoff_that_vanished_is_caught_before_the_terminal_is_handed_over`; the whole flow is
+    `tui::tests::the_handoff_is_two_steps_and_the_first_one_runs_nothing`
+  - Note: choosing and confirming are separate steps because FR-021b requires that extraction never
+    launches anything by itself
+
 ## Open
 
 - [ ] **T2403** [FR-003] The pane rail: SCTXX first, switch by key and by click, `?` keymap
@@ -183,32 +218,10 @@ task says which library function is being wrapped, not reimplemented.
     visible alongside; an existing artifact on disk opens by path (FR-016a)
   - Note: read-only. Croft's editor is 24,751 lines precisely because it is not (FR-026)
 
-- [ ] **T2412** [FR-018, FR-019, ADR 0004] Seeding templates per agent, version-pinned, with a fallback
-  - Why: the last mile, and the reason the block exists. ADR 0004 fixes the shape: the artifact travels
-    as a **path** or over **stdin**, never inline; every row falls back to the cwd route
-  - Depends on: T2411, T2410
-  - Touches: `src/agents/seeding.rs` (new), `src/cli/config` (templates, per §9.3's discipline)
-  - RED/GREEN proof: `cargo test --all-features --lib seeding_templates`
-  - Acceptance: Claude Code `--append-system-prompt-file <path>`, Pi `--append-system-prompt <path>`,
-    Codex interactive positional pointer, headless `codex exec -` over stdin; each row records the
-    version it was checked against; an unverified version selects the cwd fallback and **says so**;
-    the generated argv is asserted per row, so a change to it fails a test rather than a launch
-
-- [ ] **T2413** [FR-020, FR-021, SC-006] Launch safety: no shell, pre-checked paths, allowlist, cwd
-  - Why: transcript content is data and must never become part of a command line (constitution I,
-    `AGENTS.md` rule 5). Claude Code also fails **lazily and silently** on an unreadable file flag, so
-    sctxx must validate what the agent will not (ADR 0004)
-  - Depends on: T2412
-  - Touches: `src/agents/launch.rs` (new), `tests/cli.rs`
-  - RED/GREEN proof: `cargo test --all-features --lib a_transcript_command_never_becomes_an_argument`
-    (SC-006's planted command-like string) and `the_launch_pre_checks_every_path_it_names`
-  - Acceptance: the child is spawned with an argument vector — no shell, ever; a missing or unreadable
-    named path fails before spawning, with the reason in the pane; only allowlisted agents launch; the
-    exact command is shown before it runs; cwd is the session's cwd when it still exists, and a usable
-    directory is offered when it does not
-  - Evidence: SC-006's planted-string test is the block's proof that the TUI adds no execution path
-
 - [ ] **T2414** [FR-021a, FR-021b] Re-redact before egress, and keep launch a separate confirmation
+  - **Half done.** The separate confirmation landed with T2413: choosing an agent and confirming the
+    command are two steps, and an extraction on its own launches nothing. **Re-redaction at egress did
+    not**, and is the whole of what remains
   - Why: egress to a different tool is the one boundary where redundancy is cheap and a mistake is
     unrecoverable; and producing an artifact must never start another agent as a side effect
   - Depends on: T2413
@@ -218,16 +231,6 @@ task says which library function is being wrapped, not reimplemented.
     pane reports the count and classes removed, never the secrets; `--redact strict` applies to the
     handoff only and never to the artifact on disk; stopping at the file is a complete, ordinary flow
   - Note: third and fourth redaction of the same text on the way out. That is the point.
-
-- [ ] **T2415** [FR-022, US1] Terminal pane: a PTY the pane owns and outlives nothing
-  - Why: US1 ends with a running agent, and the launch is only honest if the child dies with the pane
-  - Depends on: T2413
-  - Touches: `src/tui/terminal.rs` (new); `portable-pty` + `vt100` + `tui-term`
-  - RED/GREEN proof: `cargo test --all-features --lib the_child_dies_with_the_pane`
-  - Acceptance: resize reaches the child; the child is killed and the reader thread joined on drop, on
-    quit, and on cancellation; a crashed child degrades to a message in the pane rather than taking the
-    TUI down; a child that ignores SIGTERM is escalated, not leaked
-  - Reference: croft's `Drop` discipline is the idea worth having (ADR 0003); the code is not copied
 
 - [ ] **T2416** [FR-003] Files pane: file tree of the session's cwd
   - Why: makes the TUI a place to work rather than a dialog; deliberately the cheapest of the borrowed
@@ -293,6 +296,12 @@ task says which library function is being wrapped, not reimplemented.
 
 ## Out of scope for this block
 
+- **T2415 (an embedded terminal pane) — superseded by ADR 0006.** The launched agent is itself a
+  full-screen application, so it gets the whole terminal rather than a rectangle inside another TUI:
+  sctxx restores the terminal, runs the child with inherited stdio, and re-initialises when it exits.
+  This removed `portable-pty`, `vt100` and `tui-term` from the dependency list. The child is still
+  owned — spawned, waited for, its exit status reported — which is what FR-022 was protecting. An
+  embedded pane is not foreclosed; it is a new decision with its own evidence.
 - Croft code. No line is copied, so no MIT notice is owed (FR-026, FR-028). If a later slice copies
   one, the machinery — `LICENSE-MIT`, `NOTICE`, `src/vendor/croft/README.md`, the header check — is
   specified and waiting (ADR 0003).

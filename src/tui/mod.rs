@@ -18,6 +18,8 @@ mod ui;
 mod work;
 
 use crate::adapters::discovery::{self, SessionSummary};
+use crate::agents::Agent;
+use crate::agents::seeding::Launch;
 use crate::cli::GlobalArgs;
 use crate::error::{Error, Result};
 use browser::Browser;
@@ -58,13 +60,18 @@ enum Mode {
     Browse,
     Search,
     Form,
+    Handoff,
 }
 
 /// What the event loop decided to do next.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Step {
     Continue,
     Quit,
+    /// Hand the terminal to a launched agent and take it back when it exits
+    /// (ADR 0006). Only the event loop can do this, because only it owns the
+    /// terminal.
+    HandOver(Box<Launch>),
 }
 
 /// What the pane knows about the selected session's ledgers.
@@ -101,6 +108,18 @@ impl RunState {
     }
 }
 
+/// The handoff flow.
+///
+/// Deliberately two steps. Extraction never launches anything by itself
+/// (FR-021b), and the exact command is on screen before it runs (FR-021).
+#[derive(Debug, Clone)]
+enum HandoffState {
+    /// Picking an agent from the ones that are installed.
+    Choosing,
+    /// Showing exactly what will run, waiting for a yes.
+    Confirming(Box<Launch>),
+}
+
 /// The whole of the TUI's state.
 struct App {
     browser: Browser,
@@ -109,6 +128,15 @@ struct App {
     previews: BTreeMap<String, PreviewState>,
     /// The extraction form, when one is open.
     form: Option<Form>,
+    /// The handoff flow, when it is open.
+    handoff: Option<HandoffState>,
+    /// Which detected agent the cursor is on.
+    handoff_cursor: usize,
+    /// What the last handoff did, so the developer sees it when they come back.
+    handoff_note: Option<String>,
+    /// The agents on this machine, once they have been looked for. `None` means
+    /// nobody has asked yet, which is why the pane can say so.
+    agents: Option<Vec<Agent>>,
     /// What the extraction pane is showing.
     run: RunState,
     worker: Worker,
@@ -133,6 +161,10 @@ impl App {
             mode: Mode::Browse,
             previews: BTreeMap::new(),
             form: None,
+            handoff: None,
+            handoff_cursor: 0,
+            handoff_note: None,
+            agents: None,
             run: RunState::Idle,
             worker: Worker::spawn(),
             settle: None,
@@ -173,6 +205,9 @@ impl App {
                             lines.push(format!("[{stage}] {message}"));
                         }
                     }
+                }
+                work::Done::Agents(detected) => {
+                    self.agents = Some(detected);
                 }
                 work::Done::Extracted { result } => {
                     self.run = match result {
@@ -221,6 +256,105 @@ impl App {
             }
         }
         self.previews.insert(id, state);
+    }
+
+    /// Open the handoff, once an extraction has produced something to hand on.
+    fn open_handoff(&mut self) {
+        if !matches!(self.run, RunState::Done(_)) {
+            // Nothing extracted yet, so there is no artifact to hand over.
+            return;
+        }
+        self.handoff = Some(HandoffState::Choosing);
+        self.handoff_cursor = 0;
+        self.handoff_note = None;
+        self.mode = Mode::Handoff;
+        // Look for the agents the first time it is asked for, off the UI thread
+        // because reading three `--version` outputs takes a moment.
+        if self.agents.is_none() {
+            self.worker.detect_agents();
+        }
+    }
+
+    /// Build the launch for the agent under the cursor.
+    ///
+    /// Everything that can be wrong — no artifact, no binary, an unreadable
+    /// handoff — is reported here, before the terminal is handed over.
+    fn build_launch(&self, cursor: usize) -> Result<Launch> {
+        let agents = self.agents.as_ref().ok_or_else(|| {
+            Error::Usage("still looking for the agents installed here".to_string())
+        })?;
+        let agent = agents
+            .get(cursor)
+            .ok_or_else(|| Error::Usage("no agent is selected".to_string()))?;
+        let artifact = match &self.run {
+            RunState::Done(outcome) => outcome.handoff.clone(),
+            _ => {
+                return Err(Error::Usage(
+                    "extract a session before handing it on".to_string(),
+                ));
+            }
+        };
+        let cwd = self
+            .browser
+            .selected()
+            .and_then(|session| session.cwd.clone());
+        Launch::interactive(agent, &artifact, cwd.as_deref().map(std::path::Path::new))
+    }
+
+    /// Choose an agent, then confirm the command. Two steps, never one.
+    fn handle_handoff(&mut self, key: KeyEvent) -> Step {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Step::Quit;
+        }
+        let count = self.agents.as_ref().map(Vec::len).unwrap_or(0);
+        match self.handoff.clone() {
+            Some(HandoffState::Choosing) => match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    self.handoff = None;
+                    self.mode = Mode::Browse;
+                }
+                // `count` is zero while detection is still in flight, and
+                // there is nothing to move onto yet.
+                KeyCode::Char('j') | KeyCode::Down if count > 0 => {
+                    self.handoff_cursor = (self.handoff_cursor + 1).min(count - 1);
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.handoff_cursor = self.handoff_cursor.saturating_sub(1);
+                }
+                KeyCode::Enter => match self.build_launch(self.handoff_cursor) {
+                    Ok(launch) => {
+                        self.handoff_note = None;
+                        self.handoff = Some(HandoffState::Confirming(Box::new(launch)));
+                    }
+                    Err(error) => {
+                        // The reason is shown where the choice was, so the
+                        // developer can pick a different agent or go and extract.
+                        self.handoff_note = Some(error.to_string());
+                    }
+                },
+                _ => {}
+            },
+            Some(HandoffState::Confirming(launch)) => match key.code {
+                KeyCode::Esc => self.handoff = Some(HandoffState::Choosing),
+                KeyCode::Enter | KeyCode::Char('y') => return Step::HandOver(launch),
+                _ => {}
+            },
+            None => {
+                self.mode = Mode::Browse;
+            }
+        }
+        Step::Continue
+    }
+
+    /// Record what a handed-over agent did, once the terminal is ours again.
+    fn launched(&mut self, launch: &Launch, outcome: Result<i32>) {
+        self.handoff_note = Some(match outcome {
+            Ok(0) => format!("{} finished", launch.agent),
+            Ok(code) => format!("{} exited with {code}", launch.agent),
+            Err(error) => error.to_string(),
+        });
+        self.handoff = Some(HandoffState::Choosing);
+        self.mode = Mode::Handoff;
     }
 
     /// Open the extraction form for the selected session.
@@ -275,11 +409,17 @@ impl App {
             self.open_form();
             return Step::Continue;
         }
+        // `h` hands off, but only once there is something to hand off.
+        if self.mode == Mode::Browse && key.code == KeyCode::Char('h') {
+            self.open_handoff();
+            return Step::Continue;
+        }
 
         let step = match self.mode {
             Mode::Browse => handle_browse(key, &mut self.browser, &mut self.mode),
             Mode::Search => handle_search(key, &mut self.browser, &mut self.mode),
             Mode::Form => return self.handle_form(key),
+            Mode::Handoff => return self.handle_handoff(key),
         };
         // Any key restarts the delay: while a query is being typed the visible
         // list is still moving, and reading a session the developer is about to
@@ -391,8 +531,21 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
         if key.kind != KeyEventKind::Press {
             continue;
         }
-        if app.handle(key) == Step::Quit {
-            return Ok(());
+        match app.handle(key) {
+            Step::Quit => return Ok(()),
+            Step::HandOver(launch) => {
+                // A coding agent is a full-screen application, so it gets the
+                // whole terminal rather than a pane inside this one (ADR 0006).
+                ratatui::restore();
+                let outcome = launch.run();
+                // Re-initialise rather than assume the terminal survived an
+                // application that took it over.
+                *terminal = ratatui::try_init().map_err(|error| {
+                    Error::Other(format!("could not restart the terminal interface: {error}"))
+                })?;
+                app.launched(&launch, outcome);
+            }
+            Step::Continue => {}
         }
     }
 }
@@ -748,6 +901,165 @@ mod tests {
             }
             other => panic!("expected a finished extraction, got {other:?}"),
         }
+    }
+
+    fn agent_fixture(
+        id: &'static str,
+        installed: bool,
+        version: Option<&str>,
+        verified: &'static str,
+    ) -> Agent {
+        Agent {
+            id,
+            label: if id == "claude" {
+                "Claude Code"
+            } else {
+                "Codex CLI"
+            },
+            program: installed.then(|| PathBuf::from(format!("/usr/local/bin/{id}"))),
+            version: version.map(str::to_string),
+            store: PathBuf::from("/tmp/store"),
+            store_exists: false,
+            verified_against: verified,
+        }
+    }
+
+    /// An app that has already extracted, with the handoff file really on disk —
+    /// because the launch checks it before anything else happens.
+    fn extraction_app() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let handoff = dir.path().join("handoff.md");
+        std::fs::write(&handoff, "# handoff\n\n[evt 1-2] something\n").expect("write");
+
+        let mut app = app();
+        app.run = RunState::Done(Box::new(crate::tui::work::Outcome {
+            reference: "claude:aaa".into(),
+            handoff: handoff.clone(),
+            paths: vec![handoff],
+            warnings: Vec::new(),
+            git_warning: None,
+            live_events: 1,
+            total_events: 2,
+        }));
+        app.agents = Some(vec![
+            agent_fixture("claude", true, Some("2.1.268"), "2.1.268"),
+            agent_fixture("codex", false, None, "0.153.4"),
+        ]);
+        (dir, app)
+    }
+
+    #[test]
+    fn h_does_nothing_until_something_has_been_extracted() {
+        // There is no handoff to make yet, and inventing one would be worse
+        // than doing nothing.
+        let mut app = app();
+        app.handle(key(KeyCode::Char('h')));
+        assert!(app.handoff.is_none());
+        assert_eq!(app.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn the_handoff_is_two_steps_and_the_first_one_runs_nothing() {
+        let (_dir, mut app) = extraction_app();
+        app.handle(key(KeyCode::Char('h')));
+        assert_eq!(app.mode, Mode::Handoff);
+        assert!(matches!(app.handoff, Some(HandoffState::Choosing)));
+
+        // Choosing builds the command and shows it; it does not launch.
+        assert_eq!(app.handle(key(KeyCode::Enter)), Step::Continue);
+        match &app.handoff {
+            Some(HandoffState::Confirming(launch)) => {
+                assert_eq!(launch.agent, "claude");
+                assert!(launch.display.contains("--append-system-prompt-file"));
+                assert!(launch.display.contains("handoff.md"));
+            }
+            other => panic!("expected a confirmation, got {other:?}"),
+        }
+
+        // Only the second step hands over the terminal.
+        assert!(matches!(app.handle(key(KeyCode::Enter)), Step::HandOver(_)));
+    }
+
+    #[test]
+    fn esc_backs_out_of_the_confirmation_without_running_anything() {
+        let (_dir, mut app) = extraction_app();
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Enter));
+        assert_eq!(app.handle(key(KeyCode::Esc)), Step::Continue);
+        assert!(matches!(app.handoff, Some(HandoffState::Choosing)));
+        // And esc again leaves the handoff entirely.
+        app.handle(key(KeyCode::Esc));
+        assert!(app.handoff.is_none());
+        assert_eq!(app.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn choosing_an_agent_that_is_not_installed_explains_rather_than_launching() {
+        let (_dir, mut app) = extraction_app();
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Char('j')));
+        assert_eq!(app.handoff_cursor, 1);
+        app.handle(key(KeyCode::Enter));
+        assert!(
+            matches!(app.handoff, Some(HandoffState::Choosing)),
+            "an agent that is not installed must not reach a confirmation"
+        );
+        let note = app.handoff_note.clone().expect("a reason");
+        assert!(note.contains("not installed"), "{note}");
+    }
+
+    #[test]
+    fn a_handoff_that_vanished_is_caught_before_the_terminal_is_handed_over() {
+        let (dir, mut app) = extraction_app();
+        std::fs::remove_file(dir.path().join("handoff.md")).expect("remove the artifact");
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Enter));
+        let note = app.handoff_note.clone().expect("a reason");
+        assert!(note.contains("not readable"), "{note}");
+        assert!(matches!(app.handoff, Some(HandoffState::Choosing)));
+    }
+
+    #[test]
+    fn the_cursor_is_clamped_to_the_agents_that_were_found() {
+        let (_dir, mut app) = extraction_app();
+        app.handle(key(KeyCode::Char('h')));
+        app.handle(key(KeyCode::Char('k')));
+        assert_eq!(app.handoff_cursor, 0);
+        app.handle(key(KeyCode::Char('j')));
+        app.handle(key(KeyCode::Char('j')));
+        app.handle(key(KeyCode::Char('j')));
+        assert_eq!(app.handoff_cursor, 1, "two agents, so one is the last");
+    }
+
+    #[test]
+    fn coming_back_from_an_agent_reports_what_it_did() {
+        let (_dir, mut app) = extraction_app();
+        let launch = app.build_launch(0).expect("a launch for claude");
+
+        app.launched(&launch, Ok(0));
+        assert!(
+            app.handoff_note
+                .as_deref()
+                .unwrap_or_default()
+                .contains("finished")
+        );
+        assert_eq!(app.mode, Mode::Handoff, "the flow stays open to run again");
+
+        app.launched(&launch, Ok(3));
+        assert!(
+            app.handoff_note
+                .as_deref()
+                .unwrap_or_default()
+                .contains('3')
+        );
+
+        app.launched(&launch, Err(crate::error::Error::Other("boom".into())));
+        assert!(
+            app.handoff_note
+                .as_deref()
+                .unwrap_or_default()
+                .contains("boom")
+        );
     }
 
     #[test]

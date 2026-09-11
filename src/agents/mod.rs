@@ -11,6 +11,8 @@
 //! not an install, and an unverified version selects the documented fallback
 //! rather than a template that may no longer exist.
 
+pub mod seeding;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -191,6 +193,19 @@ impl Machine {
             None => PathBuf::from(candidate.home_store),
         }
     }
+}
+
+/// Whether sctxx knows this agent well enough to launch it.
+///
+/// The allowlist for the handoff. Named here rather than in `seeding` so the
+/// detector and the launcher cannot drift about who is launchable.
+pub fn is_known_agent(id: &str) -> bool {
+    CANDIDATES.iter().any(|candidate| candidate.id == id)
+}
+
+/// The agent ids a handoff can launch.
+pub fn known_agents() -> Vec<&'static str> {
+    CANDIDATES.iter().map(|candidate| candidate.id).collect()
 }
 
 /// Find an executable in these directories, honoring Windows extensions.

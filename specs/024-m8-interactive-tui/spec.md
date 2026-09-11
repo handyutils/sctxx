@@ -48,13 +48,18 @@ An icon rail on the left; the selected pane fills the rest, with a status line a
 | Rail position | Pane | Origin |
 |---|---|---|
 | **1 (default)** | **SCTXX** — session browser, filters, preview, extraction, handoff | new, this block |
-| 2 | Files — file tree of the session's `cwd` | reuse, croft |
-| 3 | Search — find-in-files | reuse, croft |
-| 4 | Terminal — PTY running the launched agent session (and any shell) | reuse, croft |
-| 5 | Canvas — the rendered artifact, layer by layer | reuse, croft |
+| 2 | Files — file tree of the session's `cwd` | new, in the spirit of croft |
+| 3 | Search — find-in-files | new, in the spirit of croft |
+| 4 | Canvas — the rendered artifact, layer by layer | new, in the spirit of croft |
 
-The SCTXX pane is the one that must be excellent. The other four are borrowed surface area: they make
+The SCTXX pane is the one that must be excellent. The other three are borrowed surface area: they make
 the tool a place to work rather than a dialog, but none of them is the reason a developer opens it.
+
+**There is no terminal pane.** [ADR 0006](../../docs/adr/0006-hand-over-the-terminal-to-the-launched-agent.md)
+replaced it: the thing being launched is itself a full-screen application, so the TUI restores the
+terminal, runs the agent with inherited stdio, and re-initialises itself when the agent exits. The handoff
+is a step inside the SCTXX pane, not a rectangle. This removed `portable-pty`, `vt100` and `tui-term`
+from the dependency list.
 
 ## User scenarios
 
@@ -172,8 +177,11 @@ me run it: `list`, `find`, `show`, `extract`, `expand`, `verify`, `redact`, `ski
 - **FR-021b** The launch is a **separate, explicit confirmation** from extraction. Producing an artifact
   never starts another agent as a side effect; a developer who only wanted the file must be able to stop
   at the file.
-- **FR-022** The terminal pane owns its child process: it dies with the pane, with the TUI, or on
-  cancellation, and a crashed child degrades to a message rather than taking the TUI down.
+- **FR-022** **Revised by ADR 0006.** sctxx owns the launched child's lifetime: it spawns it, waits for
+  it, and reports its exit status when the terminal comes back, and a launch that fails is a message in
+  the pane rather than a failure of the TUI. The child is a foreground process of the developer's own
+  terminal, so it dies with the terminal rather than with a pane rectangle. The original requirement —
+  "the terminal pane owns its child process" — is satisfied by ownership, not by a pane.
 
 **Everything else (US6)**
 

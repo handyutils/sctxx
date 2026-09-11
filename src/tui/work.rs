@@ -19,6 +19,7 @@
 
 use super::preview::{self, LedgerPreview};
 use crate::adapters::discovery::SessionSummary;
+use crate::agents::{self, Agent};
 use crate::pipeline::{self, ExtractOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,6 +38,12 @@ enum Job {
         generation: u64,
         summary: SessionSummary,
     },
+    /// Look for the coding agents installed on this machine.
+    ///
+    /// Asked for once, when the developer first reaches for a handoff, because
+    /// reading three `--version` outputs is fast but not free and belongs off
+    /// the thread that draws.
+    DetectAgents,
     /// Run an extraction and write it where the developer said.
     Extract {
         summary: SessionSummary,
@@ -77,6 +84,9 @@ pub enum Done {
     Extracted {
         result: std::result::Result<Box<Outcome>, String>,
     },
+    /// The agents on this machine. Detection always answers, with the reason
+    /// each agent is or is not usable, so this cannot fail.
+    Agents(Vec<Agent>),
 }
 
 /// The handle the UI holds. Dropping it ends the worker.
@@ -125,6 +135,11 @@ impl Worker {
         });
     }
 
+    /// Ask which coding agents are installed.
+    pub fn detect_agents(&self) {
+        let _ = self.jobs.send(Job::DetectAgents);
+    }
+
     /// Run an extraction. Only the UI decides when this is legal.
     pub fn extract(&self, summary: &SessionSummary, options: ExtractOptions, out: PathBuf) {
         let _ = self.jobs.send(Job::Extract {
@@ -170,6 +185,14 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>, generation: &AtomicU64, loader: 
                     continue;
                 }
                 if done.send(Done::Ledgers { id, result }).is_err() {
+                    break;
+                }
+            }
+            Job::DetectAgents => {
+                if done
+                    .send(Done::Agents(agents::Machine::this_one().detect()))
+                    .is_err()
+                {
                     break;
                 }
             }
