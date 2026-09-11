@@ -33,8 +33,17 @@ use std::path::PathBuf;
     after_help = "Docs: https://handyutils.github.io/sctxx\nRun `sctxx doctor` to see which session stores and LLM backends were detected."
 )]
 pub struct Cli {
+    /// Optional because `sctxx --tui` is a complete invocation on its own.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
+
+    /// Open the interactive session browser.
+    ///
+    /// Deliberately not `global = true`: it belongs at the top level, so
+    /// `sctxx extract --tui` is a usage error rather than a silently ignored
+    /// flag.
+    #[arg(long)]
+    tui: bool,
 
     #[command(flatten)]
     global: GlobalArgs,
@@ -140,7 +149,21 @@ pub fn run() -> i32 {
 
 fn dispatch(cli: &Cli) -> Result<i32> {
     let global = &cli.global;
-    match &cli.command {
+    let Some(command) = &cli.command else {
+        if cli.tui {
+            return interactive(global);
+        }
+        return Err(Error::Usage(
+            "no command given. Run `sctxx --help`, or `sctxx --tui` for the interactive session browser."
+                .to_string(),
+        ));
+    };
+    if cli.tui {
+        return Err(Error::Usage(
+            "--tui takes no subcommand: run `sctxx --tui` on its own.".to_string(),
+        ));
+    }
+    match command {
         Command::List(args) => discover::list(args, global),
         Command::Find(args) => discover::find(args, global),
         Command::Show(args) => discover::show(args, global),
@@ -151,6 +174,27 @@ fn dispatch(cli: &Cli) -> Result<i32> {
         Command::Skill(command) => skill::run(command, global),
         Command::Schema(args) => schema::run(args, global),
         Command::Doctor => doctor::run(global),
+    }
+}
+
+/// `sctxx --tui`, or a clear refusal when this build has no viewport.
+///
+/// The same shape as `--llm api:` in a build without the `api` feature: the
+/// flag exists in every build so that the failure is a sentence rather than an
+/// unknown argument.
+fn interactive(global: &GlobalArgs) -> Result<i32> {
+    #[cfg(feature = "tui")]
+    {
+        crate::tui::run(global)
+    }
+    #[cfg(not(feature = "tui"))]
+    {
+        let _ = global;
+        Err(Error::Usage(
+            "this build was compiled without the `tui` feature. Use `sctxx list` or `sctxx extract`, \
+             or install a build with default features."
+                .to_string(),
+        ))
     }
 }
 

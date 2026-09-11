@@ -53,6 +53,8 @@ pub mod ir;
 pub mod llm;
 pub mod pipeline;
 pub mod skill;
+#[cfg(feature = "tui")]
+pub mod tui;
 pub mod vendor;
 
 /// The published version of this build, as it appears in every artifact.

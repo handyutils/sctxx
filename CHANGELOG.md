@@ -7,6 +7,25 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+### Added
+
+- **`sctxx --tui`: an interactive session browser** (M8, first slice). It lists every session the CLI
+  can see and lets you narrow it without knowing an id: `/` searches fuzzily across titles, first
+  messages, ids and directories, and `a` / `r` / `p` filter by agent, recency (24h / 7d / 30d) and
+  "this project". A pasted id or path matches exactly and outranks every fuzzy hit. The preview pane
+  shows the session's agent, id, time, cwd, size, title, first message and path — read from discovery,
+  with the transcript untouched, so browsing costs nothing.
+  Behind the `tui` feature (on by default, excluded by `--no-default-features`).
+- `sctxx --tui` refuses to start when stdout is not a terminal, with exit 2 and a message naming the
+  CLI alternatives, so a piped or agent-driven invocation can never hang on a key press.
+
+### Changed
+
+- **MSRV 1.85 → 1.88.** `ratatui` 0.30.1+, `ignore` 0.4.31+ and `tui-markdown` all require it, and the
+  TUI is in this crate. `rust-version` is per-package, so a feature cannot carry its own. Recorded in
+  `Cargo.toml`, the CI job, the constitution, and `AGENTS.md`; reasoning in
+  `docs/adr/0003-tui-stack-and-msrv.md`.
+
 ## [0.1.3] - 2026-09-11
 
 ### Documentation

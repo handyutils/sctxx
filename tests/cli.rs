@@ -734,3 +734,53 @@ fn list_and_find_read_a_store_root_override() {
     let matched: serde_json::Value = serde_json::from_str(&stdout_of(&found)).expect("json");
     assert_eq!(matched.as_array().map(Vec::len), Some(1), "{matched}");
 }
+
+#[test]
+fn tui_refuses_to_run_without_a_terminal() {
+    // `assert_cmd` pipes stdout, which is exactly the case that must not hang:
+    // an agent running `sctxx --tui` gets a sentence and exit 2, not a screen
+    // waiting for a key press that will never come.
+    let output = sctxx().arg("--tui").output().expect("run");
+    assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
+    // The refusal differs by build, and both are contracts: a build with the
+    // viewport says why it cannot start, one without says the feature is absent.
+    #[cfg(feature = "tui")]
+    assert!(
+        stderr_of(&output).contains("needs a terminal"),
+        "the refusal must say why: {}",
+        stderr_of(&output)
+    );
+    #[cfg(not(feature = "tui"))]
+    assert!(
+        stderr_of(&output).contains("without the `tui` feature"),
+        "a minimal build must say the feature is missing: {}",
+        stderr_of(&output)
+    );
+    assert!(
+        stdout_of(&output).is_empty(),
+        "--tui must not write a payload to stdout: {}",
+        stdout_of(&output)
+    );
+}
+
+#[test]
+fn tui_is_a_top_level_flag_only() {
+    // `sctxx --tui list` parses the flag and then a subcommand; it is a usage
+    // error rather than a silently ignored flag.
+    let with_subcommand = sctxx().args(["--tui", "list"]).output().expect("run");
+    assert_eq!(
+        with_subcommand.status.code(),
+        Some(2),
+        "{}",
+        stderr_of(&with_subcommand)
+    );
+
+    // And it is not accepted after a subcommand at all.
+    let after_subcommand = sctxx().args(["list", "--tui"]).output().expect("run");
+    assert_eq!(
+        after_subcommand.status.code(),
+        Some(2),
+        "{}",
+        stderr_of(&after_subcommand)
+    );
+}
