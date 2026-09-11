@@ -146,7 +146,7 @@ delivery ledger.
 
 ## Status
 
-v0.1.2. The CLI, exit codes, and the `sctxx.handoff/v1`, `ops.v1`, and `state.v1` schemas are
+v0.1.3. The CLI, exit codes, and the `sctxx.handoff/v1`, `ops.v1`, and `state.v1` schemas are
 contracts. The Rust library surface is public but unstable before 1.0.
 
 Not yet built, and tracked in the roadmap: the probe loop and `sctxx eval` (M5), cache and

@@ -7,6 +7,17 @@ bump and a compatibility note.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-11
+
+### Documentation
+
+- **The npm packages have READMEs, so `npmjs.com/package/sctxx` is no longer an empty page.** The
+  earlier versions were published without one, and npm versions are immutable, so it took a release to
+  fix. The page now carries the quick start, five concrete use cases, the artifact's layers, and — as
+  the first question a careful engineer asks — exactly which algorithms are ported from OpenAI's Codex
+  CLI, which upstream file each one comes from, and what it does for you. It also says what is *not*
+  taken: no dependency on any `codex-*` crate, and no affiliation with or endorsement by OpenAI.
+
 ## [0.1.2] - 2026-09-11
 
 ### Fixed
@@ -121,7 +132,8 @@ Tracked in `docs/SCTXX-ROADMAP.md`: the probe loop and `sctxx eval` (M5); cache,
 incremental updates; host mode and an MCP server (M6). `--mode full` currently behaves as
 `standard` and says so.
 
-[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/handyutils/sctxx/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/handyutils/sctxx/releases/tag/v0.1.3
 [0.1.2]: https://github.com/handyutils/sctxx/releases/tag/v0.1.2
 [0.1.1]: https://github.com/handyutils/sctxx/releases/tag/v0.1.1
 [0.1.0]: https://github.com/handyutils/sctxx/releases/tag/v0.1.0

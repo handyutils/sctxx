@@ -1,7 +1,7 @@
 // All page content lives here so the components stay presentational and the
 // docs can be edited without touching layout code.
 
-export const VERSION = "0.1.2";
+export const VERSION = "0.1.3";
 export const REPO = "https://github.com/handyutils/sctxx";
 export const CRATE = "https://crates.io/crates/sctxx";
 
