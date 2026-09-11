@@ -25,7 +25,7 @@ cargo fmt --all                                        # format (CI runs --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features                              # unit + adapter snapshots + pipeline (mock LLM) + CLI
 cargo test --no-default-features                       # `minimal` build must compile and pass (no network code)
-cargo +1.85 check --all-features                       # MSRV
+cargo +1.88 check --all-features                       # MSRV (raised from 1.85 by ADR 0003)
 cargo insta review                                     # accept/reject snapshot changes (needs cargo-insta)
 cargo test --release -- --ignored                      # large-session perf tests (§16), not run by default
 cargo xtask gen-schemas                                # regenerate schemas/*.json from Rust types (commit the result)

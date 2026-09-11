@@ -67,7 +67,8 @@ agent stores, never call a network, and never call a real LLM.
 
 - Primary development host: Apple M1 Max (`aarch64-apple-darwin`). Linux musl (x86_64, aarch64) and
   Windows are proven in CI on every change.
-- Pinned stable toolchain; MSRV 1.85; edition 2024.
+- Pinned stable toolchain; MSRV 1.88; edition 2024. (Raised from 1.85 by ADR 0003, for the TUI's
+  viewport crates; `rust-version` is per-package, so the `tui` feature cannot carry its own.)
 - `.sctxx/` and `CLAUDE.local.md` are gitignored. Fixture file names never differ only by letter case
   (APFS is case-insensitive).
 - Until v0.1.0 is public, work happens directly on `main` in focused commits; afterwards through pull

@@ -280,7 +280,10 @@ sctxx/
 
 `clap` (derive), `serde`, `serde_json`, `schemars`, `thiserror`, `anyhow` (bin only), `jiff` or `time`, `regex`, `memchr`, `sha2`, `walkdir`, `etcetera` (XDG/Known-Folder paths), `zstd` (feature), `reqwest` with `rustls-tls` + `tokio` (feature `api`), `insta`, `proptest`, `assert_cmd`, `tempfile` (dev).
 
-Toolchain: stable, pinned in `rust-toolchain.toml`; **MSRV 1.85** (edition 2024 floor). CI tests MSRV and latest stable.
+Toolchain: stable, pinned in `rust-toolchain.toml`; **MSRV 1.88**, raised from 1.85 by
+[ADR 0003](../docs/adr/0003-tui-stack-and-msrv.md) for the TUI's viewport crates (`ratatui` 0.30.1+
+and `ignore` 0.4.31+ both require it). `rust-version` is per-package, so the `tui` feature cannot
+carry its own. CI tests MSRV and latest stable.
 
 ### 4.4 Data flow
 

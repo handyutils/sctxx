@@ -213,8 +213,8 @@ render/key/mouse dispatch that assumes Croft's global state and its `Pane`/`Side
 Two constraints this creates:
 
 - **MSRV.** Croft is edition 2024 with a pinned toolchain of **1.97.1** and no `rust-version` field;
-  `sctxx` supports **MSRV 1.85**. Any ported code must compile at 1.85 or be rewritten — a ported file
-  that quietly raises the MSRV breaks a CI job and a promise.
+  `sctxx`'s MSRV is **1.88** once this block lands (FR-026a), so any ported code must compile at 1.88
+  or be rewritten — a ported file that quietly raises it further breaks a CI job and a contract.
 - **The licence facts are in ticket 12**, including the no-deferral rule (FR-028).
 
 - **FR-026** **Reference only — no croft code is copied for the first slice.** The panes are written

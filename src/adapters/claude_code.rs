@@ -148,10 +148,10 @@ pub fn parse_with_sidechains(
 }
 
 fn read_meta(builder: &mut SessionBuilder, raw: &Value) {
-    if builder.id.is_empty() {
-        if let Some(id) = string_field(raw, "sessionId") {
-            builder.id = id;
-        }
+    if builder.id.is_empty()
+        && let Some(id) = string_field(raw, "sessionId")
+    {
+        builder.id = id;
     }
     if builder.meta.cwd.is_none() {
         builder.meta.cwd = string_field(raw, "cwd").map(std::path::PathBuf::from);

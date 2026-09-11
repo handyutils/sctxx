@@ -627,13 +627,12 @@ fn shell_file_ops(command: &str) -> Vec<(String, FileOp)> {
             _ => {}
         }
         // Output redirection creates or rewrites a file.
-        if let Some(target) = segment.split('>').nth(1) {
-            if let Some(word) = target.split_whitespace().next()
-                && !word.starts_with('&')
-                && word.contains('.')
-            {
-                ops.push((word.trim_matches(['"', '\'']).to_string(), FileOp::Create));
-            }
+        if let Some(target) = segment.split('>').nth(1)
+            && let Some(word) = target.split_whitespace().next()
+            && !word.starts_with('&')
+            && word.contains('.')
+        {
+            ops.push((word.trim_matches(['"', '\'']).to_string(), FileOp::Create));
         }
     }
     ops
@@ -905,14 +904,15 @@ fn read_git_ledger(ledgers: &mut Ledgers) {
             continue;
         }
         let output = format!("{}\n{}", record.output_head, record.output_tail);
-        if record.normalized.contains("commit") && !record.failed() {
-            if let Some((sha, subject)) = parse_commit_line(&output) {
-                ledgers.git.commits.push(CommitRecord {
-                    evt: record.evt,
-                    sha,
-                    subject,
-                });
-            }
+        if record.normalized.contains("commit")
+            && !record.failed()
+            && let Some((sha, subject)) = parse_commit_line(&output)
+        {
+            ledgers.git.commits.push(CommitRecord {
+                evt: record.evt,
+                sha,
+                subject,
+            });
         }
         if record.normalized.contains("push") && !record.failed() {
             ledgers.git.pushed = true;
