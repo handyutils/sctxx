@@ -73,7 +73,7 @@ cwd=/home/dev/sctxx
 ## L3 · Retrieval
 
 Source: Codex CLI session `6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8`
-<path>/basic.jsonl`
+- `<repo>/tests/fixtures/codex/basic.jsonl`
 
 Expand any pointer:
 ```sh

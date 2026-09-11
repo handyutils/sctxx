@@ -70,7 +70,7 @@ AssertionError: expected 2 sections, got 1  (evt 5)
 ## L3 · Retrieval
 
 Source: Pi session `pi-9a8b7c6d`
-<path>/basic.jsonl`
+- `<repo>/tests/fixtures/pi/basic.jsonl`
 
 Expand any pointer:
 ```sh

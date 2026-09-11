@@ -88,7 +88,7 @@ Tests: 2 failed, 9 passed  (evt 15)
 ## L3 · Retrieval
 
 Source: Claude Code session `7c1e8f82-4d5e-6f70-8192-a3b4c5d6e7f8`
-<path>/basic.jsonl`
+- `<repo>/tests/fixtures/claude/basic.jsonl`
 
 Expand any pointer:
 ```sh

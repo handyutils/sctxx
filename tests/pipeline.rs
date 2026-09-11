@@ -40,6 +40,11 @@ fn extract(relative: &str, options: &ExtractOptions) -> pipeline::Extraction {
 
 /// Normalize the parts of an artifact that legitimately vary between runs.
 fn stable(markdown: &str) -> String {
+    // The checkout location differs per machine, so anchor paths on the
+    // repository root instead of matching path fragments: the previous version
+    // knew about one developer's worktree layout, which is not a property of
+    // the artifact at all.
+    let root = env!("CARGO_MANIFEST_DIR");
     markdown
         .lines()
         .map(|line| {
@@ -50,11 +55,8 @@ fn stable(markdown: &str) -> String {
                 "tokens: <normalized>".to_string()
             } else if line.starts_with("sctxx:") {
                 "sctxx: <version>".to_string()
-            } else if line.contains(".delta/worktrees") || line.contains("tests/fixtures") {
-                let trimmed = line.rsplit('/').next().unwrap_or(line);
-                format!("<path>/{trimmed}")
             } else {
-                line.to_string()
+                line.replace(root, "<repo>")
             }
         })
         .collect::<Vec<String>>()
