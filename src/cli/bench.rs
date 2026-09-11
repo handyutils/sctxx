@@ -51,6 +51,11 @@ pub struct BenchArgs {
     #[arg(long)]
     show_answers: bool,
 
+    /// Write `bench.json` and `bench.md` into this directory, so a number is
+    /// published next to the report that produced it.
+    #[arg(long, value_name = "DIR")]
+    out: Option<std::path::PathBuf>,
+
     #[arg(long)]
     any_project: bool,
 }
@@ -156,11 +161,22 @@ pub fn run(args: &BenchArgs, global: &GlobalArgs) -> Result<i32> {
     }
 
     let scores = bench::score(&trials);
+    if let Some(dir) = &args.out {
+        write_report(
+            dir,
+            &scores,
+            &trials,
+            &sessions,
+            &selection.to_string(),
+            args,
+        )?;
+    }
     if global.json {
         out_json(&serde_json::json!({
             "schema": "sctxx.bench/v1",
             "backend": selection.to_string(),
             "questions": trials.len() / arms.len().max(1),
+            "trials": trials,
             "arms": arms.iter().map(|arm| arm.label()).collect::<Vec<_>>(),
             "overall": scores.iter().map(|(arm, score)| {
                 (arm.label().to_string(), serde_json::json!({
@@ -198,6 +214,74 @@ pub fn run(args: &BenchArgs, global: &GlobalArgs) -> Result<i32> {
         out(&dump);
     }
     Ok(0)
+}
+
+/// Write the machine-readable report and a readable one beside it.
+///
+/// Both, always: a score without the trials behind it cannot be audited, and a
+/// JSON blob nobody opens cannot be read. The project's rule is that a number is
+/// published with the report that produced it.
+fn write_report(
+    dir: &std::path::Path,
+    scores: &BTreeMap<Arm, bench::ArmScore>,
+    trials: &[Trial],
+    sessions: &[serde_json::Value],
+    backend: &str,
+    args: &BenchArgs,
+) -> Result<()> {
+    std::fs::create_dir_all(dir).map_err(|source| Error::io(dir, source))?;
+
+    let report = serde_json::json!({
+        "schema": "sctxx.bench/v1",
+        "backend": backend,
+        "settings": {
+            "brief": args.brief,
+            "deep": args.deep,
+            "recent": args.recent,
+            "expansions": args.expansions,
+            "arms": args.arms,
+        },
+        "questions": trials.len() / scores.len().max(1),
+        "overall": scores.iter().map(|(arm, score)| {
+            (arm.label().to_string(), serde_json::json!({
+                "asked": score.asked,
+                "correct": score.correct,
+                "accuracy": score.accuracy(),
+                "tokens": score.tokens,
+                "tokens_per_correct": score.tokens_per_correct(),
+                "expansions": score.expansions,
+                "by_class": score.by_class,
+            }))
+        }).collect::<BTreeMap<_, _>>(),
+        "sessions": sessions,
+        "trials": trials,
+    });
+    let json_path = dir.join("bench.json");
+    std::fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&report).unwrap_or_default(),
+    )
+    .map_err(|source| Error::io(&json_path, source))?;
+
+    let mut markdown = render(scores, trials, backend);
+    markdown.push_str("\n## Every answer\n");
+    for trial in trials {
+        markdown.push_str(&format!(
+            "\n**{}** · `{}` · {} — {}\n\n> {}\n",
+            trial.arm.label(),
+            trial.question,
+            trial.class.label(),
+            if trial.correct { "correct" } else { "WRONG" },
+            trial
+                .answer
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" "),
+        ));
+    }
+    let md_path = dir.join("bench.md");
+    std::fs::write(&md_path, markdown).map_err(|source| Error::io(&md_path, source))?;
+    Ok(())
 }
 
 /// Ask one question under one arm, including any retrieval rounds.
