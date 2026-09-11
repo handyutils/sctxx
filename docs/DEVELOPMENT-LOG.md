@@ -12,6 +12,45 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The handoff is verified, and the agents ask to be trusted first
+
+Commits: `b00bea3`
+
+**ADR 0004's three rows are verified rather than probed.** Each agent was given a real 58 KB
+deterministic artifact, and each answered with the source session's id — which appears only *inside* the
+artifact, not in the pointer sentence sctxx generates. So the test is content-level: it shows the
+handoff arrived, not that a flag parsed.
+
+```
+claude --append-system-prompt-file <handoff.md>   12.0s  exit 0  id returned
+pi     --append-system-prompt <handoff.md>        15.0s  exit 0  id returned
+codex  exec "<pointer>" (read the file itself)    20.5s  exit 0  id returned
+```
+
+Evidence: `specs/024-m8-interactive-tui/evidence/T2419.md`.
+
+**What failed is the part worth keeping.** Neither *interactive* launch reached a first turn. Both
+stopped at the agent's own trust prompt for a directory it had not seen:
+
+```text
+Quick safety check: Is this a project you created or one you trust?
+Do you trust the contents of this directory?
+```
+
+That is correct, and it is precisely what `--dangerously-bypass-...` exists to skip — which is why sctxx
+never passes it. In practice a handoff starts in the project the session was about, which the developer
+has already trusted, so this is an edge case rather than the normal path. But the pane was promising
+"this exact command will run" while saying nothing about the first thing the developer would actually
+see, so the confirming pane now says it and a render test holds the wording. **A measured surprise
+should become documented behaviour, not a footnote in an evidence file.**
+
+**Two things are left unverified and are recorded as such.** First-turn delivery in the interactive form
+past that prompt, and resumability — reaching either would mean accepting trust on the developer's
+behalf, or launching into a live project and letting the agent start working. An attempt to verify
+resumability by relocating Claude's home (`CLAUDE_CONFIG_DIR`) failed instructively: it relocates the
+credentials too, so the run answered `Not logged in`. A session record was still written, which shows
+the store is written independently of the model call, but that is not a resumable session.
+
 ## 2026-09-11 - The handoff works: `h` starts another agent with the context loaded
 
 Commits: `7e85bb6`
