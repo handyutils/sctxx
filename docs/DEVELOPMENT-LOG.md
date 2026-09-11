@@ -12,6 +12,53 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - The handoff works: `h` starts another agent with the context loaded
+
+Commits: `7e85bb6`
+
+**The last mile is closed.** From a session in the browser: `e` extracts it, `h` lists the agents
+installed here, `enter` shows the exact command, and a second confirmation hands the terminal over to a
+new agent session whose first turn already carries the handoff.
+
+**The seeding routes are ADR 0004's, per agent and version-pinned:**
+
+```
+claude  --append-system-prompt-file <path> "<pointer>"
+pi      --append-system-prompt <path> "<pointer>"
+codex   "<pointer>"          (no such flag, so the cwd carries the context)
+```
+
+Three properties are enforced by tests rather than by care:
+
+- **The artifact travels as a path.** Its contents never cross argv — asserted directly, and SC-006's
+  planted `rm -rf /` is the test that would catch a regression.
+- **An unverified version gets the fallback**, with the pointer and no flags at all, and the pane names
+  the version that *was* verified. Nothing is guessed at, which is the whole reason
+  `verified_against` sits next to the detected version.
+- **A handoff that is missing, unreadable, or not a file fails before anything is spawned.** Claude Code
+  answers an unreadable `--append-system-prompt-file` with silence, so without this check the developer
+  would find out from the receiving agent.
+
+**ADR 0006 changes the plan, deliberately.** The launched thing is not a shell — it is Claude Code,
+Codex, or Pi, each a full-screen application. Embedding one means rendering it at half width inside
+another TUI that also wants the alternate screen and the keyboard; that is why croft's terminal widget
+is 5,108 lines. So the TUI restores the terminal, runs the child with inherited stdio, and re-initialises
+when it exits. `portable-pty`, `vt100` and `tui-term` leave the dependency list, and sctxx still owns
+the child — spawns it, waits for it, reports its exit status — which is what FR-022 was protecting. The
+spec's screen table and FR-022 were updated rather than left disagreeing with the code.
+
+**A real bug the render tests found.** A long filesystem path contains no spaces, and the pane was
+keeping the first line of it and silently dropping the rest — so "the exact command is shown before it
+runs" was, for exactly the case that matters, false. The pane now breaks long tokens itself
+(`wrap_hard`) instead of trusting a wrapper that drops the tail, and `a_long_token_is_broken_rather_than_lost`
+asserts no character is lost. A related cosmetic bug fell out of the same test: a seven-character field
+label ran straight into its value (`{name:<7}` with `handoff`), which is now `{name:<8}`.
+
+**Two halves of tasks are honestly not done and say so in `tasks.md`:** re-redaction at egress (T2414)
+and cancelling a running extraction (T2408). Both were split rather than ticked.
+
+382 tests on `--all-features`, 308 on `--no-default-features`.
+
 ## 2026-09-11 - 0.2.0 ships, and the agent detector lands behind it
 
 Commits: `9987b9f`, `3c07471` · Release: tag `v0.2.0`

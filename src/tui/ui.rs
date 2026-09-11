@@ -1021,6 +1021,19 @@ mod tests {
     }
 
     #[test]
+    fn the_browse_footer_advertises_the_keys_that_matter() {
+        // A feature nobody can find is not a feature: `e` and `h` are the two
+        // that carry the whole flow.
+        let text = screen(&app(), 150, 44);
+        for key in ["/ search", "e extract", "h handoff", "q quit"] {
+            assert!(
+                text.contains(key),
+                "missing {key:?} from the footer:\n{text}"
+            );
+        }
+    }
+
+    #[test]
     fn the_header_and_the_list_survive_a_narrow_terminal() {
         // Every pane decision has to hold at 80 columns, which is where long
         // paths and ids start to collide.
