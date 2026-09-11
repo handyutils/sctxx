@@ -216,12 +216,18 @@ agent with the handoff already loaded — the last mile extraction has never had
 between a utility you remember and a tool you live in.
 
 - `sctxx --tui`: an icon rail with **SCTXX first**, plus file tree, search, terminal, and canvas panes
-  reused from [croft](https://github.com/vitali87/croft) (MIT, attributed from the first copied line —
-  see ticket `12-croft-reuse-and-mit-attribution`).
+  in the spirit of [croft](https://github.com/vitali87/croft) (MIT) — but **written on lighter crates,
+  not ported**: croft is reference only, so no attribution is owed today and the MIT machinery exists
+  unused for the first line that is ever copied. See
+  [ADR 0003](../docs/adr/0003-tui-stack-and-msrv.md) and ticket `12-croft-reuse-and-mit-attribution`.
 - Session browser: filter by agent, date, and cwd; fuzzy search; jump by id or path; a preview built
-  from the deterministic ledgers, so it costs nothing.
+  from the deterministic ledgers, so it costs nothing. Discovery stays `sctxx`'s own
+  `adapters::discovery` — not agentman's walker, and not a second scanner
+  ([ADR 0005](../docs/adr/0005-sctxx-agentman-boundary.md)).
 - Extraction form mirroring every `extract` flag, with the backends actually available on this machine.
-- Handoff: detect installed agents and start a fresh session seeded with the extracted context.
+- Handoff: detect installed agents and start a fresh session seeded with the extracted context. The
+  artifact travels as a path, never inline, with a cwd fallback for every agent
+  ([ADR 0004](../docs/adr/0004-handoff-launch-and-seeding.md)).
 
 **Feature blocks:** `specs/024-m8-interactive-tui/`
 

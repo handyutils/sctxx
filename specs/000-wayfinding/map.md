@@ -55,10 +55,24 @@ Everything before that (M0) made the repository safe to build in public.
 - [M8: the interactive TUI](../../docs/SCTXX-ROADMAP.md) — 2026-09-11, maintainer decision: a new
   milestone moves the roadmap's "no TUI" deferral. `sctxx --tui` browses sessions, extracts one, and
   launches a fresh session in a chosen installed agent with the handoff pre-loaded. Block
-  `specs/024-m8-interactive-tui/`; three tickets must resolve before its plan —
-  [croft reuse and MIT attribution](issues/12-croft-reuse-and-mit-attribution.md),
-  [sctxx ↔ agentman](issues/13-sctxx-and-agentman-relationship.md), and
-  [handoff launch and seeding](issues/14-handoff-launch-and-seeding.md).
+  `specs/024-m8-interactive-tui/`; the three tickets that had to resolve before its plan are all
+  closed: [croft reuse and MIT attribution](issues/12-croft-reuse-and-mit-attribution.md) (ADR 0003),
+  [sctxx ↔ agentman](issues/13-sctxx-and-agentman-relationship.md) (ADR 0005), and
+  [handoff launch and seeding](issues/14-handoff-launch-and-seeding.md) (ADR 0004).
+- [Handoff launch and seeding](issues/14-handoff-launch-and-seeding.md) — 2026-09-11: seeding is a
+  per-agent, version-pinned template table, and **the artifact never travels inline** — only a one-line
+  pointer crosses argv, the artifact crosses as a path or, for `codex exec -`, over stdin. Claude Code
+  2.1.268 seeds via the undocumented `--append-system-prompt-file`; Pi 0.85.1 via
+  `--append-system-prompt <path>` (it reads the file when the value exists); Codex 0.153.4 via its
+  positional prompt, or stdin when headless. Every row falls back to the cwd route. Claude Code fails
+  *lazily and silently* on an unreadable file flag, so the launch pre-checks what it names. Status:
+  probed, end-to-end launch is a block 024 task.
+- [sctxx ↔ agentman](issues/13-sctxx-and-agentman-relationship.md) — 2026-09-11: `sctxx` owns
+  discovery *semantics*; no code is shared either way yet; the boundary is the versioned
+  `sctxx list --json` contract. A shared crate is deferred with a trigger (**after block 022**, when
+  the adapter set stops moving) rather than rejected, because agentman's generic walker is lossy in
+  ways already observed while `sctxx`'s per-agent adapters are still being added to. Launching splits by
+  semantics: agentman resumes, `sctxx` seeds a new session.
 
 ## Not yet specified
 

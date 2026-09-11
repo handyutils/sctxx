@@ -1,7 +1,7 @@
 # Decide how sctxx and agentman relate before the TUI duplicates session discovery
 
 Type: research
-Status: open
+Status: resolved (2026-09-11) — see [ADR 0005](../../../docs/adr/0005-sctxx-agentman-boundary.md)
 
 ## Question
 
@@ -58,3 +58,35 @@ A one-page recommendation with the boundary named (which repository owns which f
 migration cost for whichever tool loses code, and a note for `docs/SCTXX-ROADMAP.md` if the answer
 changes M8's scope. Unblocks `specs/024-m8-interactive-tui/` FR-029. Spec ref: block 024, "Reuse"
 section.
+
+---
+
+## Resolution
+
+**`sctxx` owns session-discovery semantics; no code is shared in either direction today; the boundary
+is `sctxx`'s versioned JSON contract. `sctxx --tui` continues, scoped to the handoff rather than to
+browsing.** Full reasoning: **[ADR 0005 — sctxx and agentman](../../../docs/adr/0005-sctxx-agentman-boundary.md)**.
+
+Answers to the three questions the ticket posed:
+
+1. **Who owns discovery — none of (a)–(d) as written.** `sctxx`'s `adapters::discovery` stays the only
+   scanner *inside* `sctxx` (FR-029), but agentman does not take a library dependency on it and no
+   shared crate is extracted yet. Option (a) inverts a dependency, making a pre-release tool the
+   foundation of a published one; option (b) is the better long-term shape but would freeze a discovery
+   API at exactly the moment block 022 adds four more adapters — three of them agents agentman already
+   knows. Until then the boundary is `sctxx list --json` / `sctxx show --json`, which are already
+   versioned and tested. **Revisit trigger: after block 022, when the adapter set stops moving.**
+2. **Who owns launching — split by semantics, not by code.** agentman owns *resuming* a session it
+   already knows; `sctxx` owns *starting a new session seeded with a handoff* (ADR 0004). The genuinely
+   duplicated piece is the agent catalogue, and block 024 must implement it because **agentman has no
+   installed-agent detection at all** — only `dir.is_dir()`. If it is shared later it should be shared
+   as data, not as a dependency.
+3. **What `sctxx --tui` is for — the handoff, not the browsing.** The ticket's honest framing was
+   right: browsing is the entry point, extract → hand off with context pre-loaded is the product. Two
+   session lists on one machine are acceptable where they answer different questions; neither is the
+   reason to open the other.
+
+One finding is left deliberately unfixed: agentman's walker misses `.jsonl.zst` (so it finds zero DSH
+sessions while advertising DSH resume), double-indexes OpenClaude replays, and indexes Codewhale
+`runtime/state.json` as junk. Those are real defects in a published tool, but fixing them is not a side
+effect of this block — the finding lives here so the fix has a home.

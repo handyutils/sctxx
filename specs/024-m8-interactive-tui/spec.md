@@ -2,7 +2,8 @@
 
 **Feature Branch**: `024-m8-interactive-tui`
 **Created**: 2026-09-11
-**Status**: Draft
+**Status**: Active — all four open questions resolved 2026-09-11 (ADR 0003, ADR 0004, ADR 0005);
+`tasks.md` is authoritative and T2401–T2402 are done
 **Input**: new roadmap milestone M8; `docs/SCTXX-SPEC.md` §3, §12, §13; direction from the maintainer,
 2026-09-11
 
@@ -320,11 +321,23 @@ A survey of it (2026-09-11) says what to take and what not to:
 
 ## Open questions → Wayfinder tickets before this block is specified
 
-1. **croft reuse boundary and MIT mechanics** — which modules (if any) are self-contained enough to
-   port, and what the attribution files look like when MIT code joins an Apache-2.0 crate.
-2. **sctxx ↔ agentman** — share discovery, consume it as a library, add handoff to agentman instead,
-   or accept duplication with a stated reason.
-3. **Launch and seeding per agent** — the exact, documented way to start a fresh Claude Code / Codex /
-   Pi session with the handoff already in its first turn.
-4. **TUI as a published feature** — default-on or opt-in `tui` feature, and the effect on the <15 MB
-   binary target and on `--no-default-features`.
+All four are resolved. The first three gate the plan and are closed; the block is specified from
+`plan.md` onward with no open question.
+
+1. **croft reuse boundary and MIT mechanics** — resolved 2026-09-11:
+   [ADR 0003](../../docs/adr/0003-tui-stack-and-msrv.md). Reference only; the panes are built on
+   lighter crates; the MIT machinery exists and is unused because nothing was copied.
+2. **sctxx ↔ agentman** — resolved 2026-09-11:
+   [ADR 0005](../../docs/adr/0005-sctxx-agentman-boundary.md). `sctxx` keeps
+   `adapters::discovery` as the only scanner and as the definition of discovery semantics; no code is
+   shared in either direction yet; the boundary is the versioned `list --json` / `show --json`
+   contract; a shared crate is deferred with an explicit trigger (after block 022). The TUI continues,
+   scoped to the handoff rather than to browsing.
+3. **Launch and seeding per agent** — resolved 2026-09-11:
+   [ADR 0004](../../docs/adr/0004-handoff-launch-and-seeding.md). A per-agent, version-pinned template
+   table; the artifact travels as a path (Claude Code, Pi) or over stdin (headless Codex), never
+   inline; every row falls back to the cwd route; the launch pre-checks the paths it names.
+4. **TUI as a published feature** — resolved 2026-09-11: default-on behind a `tui` feature, excluded
+   by `--no-default-features`, so the deterministic minimal build stays free of the viewport crates.
+   Shipped that way in the first slice; the release-binary size is measured against §16's <15 MB target
+   when the feature is complete (FR-026b).
