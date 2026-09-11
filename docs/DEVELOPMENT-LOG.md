@@ -12,6 +12,50 @@ Commits: `<full sha>`, `<full sha>`
 <What changed, why, and what later work must know. Link the ledger block: specs/NNN-slug/.>
 -->
 
+## 2026-09-11 - npm works; the first real session found two artifact bugs
+
+Commits: `2de85f0`, `c58e79c`, `d5c8a28` · Release re-runs: `34559661480`, `34560054937`
+
+**`npm i -g sctxx` installs the right binary.** A wrapper package declares six per-platform packages
+as `optionalDependencies`, each carrying `os`/`cpu`; npm installs exactly one and no Rust toolchain is
+involved. Verified by installing from the public registry into a clean prefix and running `sctxx
+doctor` through the shim. The packages are unscoped (`sctxx-darwin-arm64`, not `@sctxx/cli-*` as
+§14.3 proposed) because npm scopes need an organisation this account does not have; the command users
+type is unchanged.
+
+**Two release failures that only the second and third runs could reveal.** The first dispatch died
+because the npm job checked out the *tag*, and v0.1.0 predates `npm/` — the binaries already come from
+build artifacts, so the job now takes only the recipe from the running ref, and the version from the
+tag. The second died on `aarch64-unknown-linux-musl` with `GLIBC_2.28 not found` while CI's identical
+cross build passed: a restored `target/` carried build scripts compiled on the runner, which the
+container cannot execute. Cross jobs no longer take a cache. Both publish jobs are now idempotent, so
+a partially-failed release is safe to re-dispatch — which is how the six npm packages got out.
+
+**One npm name is still missing.** `sctxx-win32-arm64` is refused by npm's spam detection (a new
+account publishing a burst of similar names). Six of seven published; Windows on ARM falls back to
+the shim's `cargo install` message until a re-dispatch gets it through. Provenance is inconsistent for
+0.1.0 as a result — npm versions are immutable, so that is recorded rather than papered over.
+
+**The first real session extraction paid for itself immediately.** A 14,151-line Claude Code session
+(6,753 events on the active branch — the rewind resolution doing real work) extracted deterministically
+in 7.6 s, and two defects that no synthetic fixture had exposed fell out:
+
+1. **Every artifact's header claimed `masked: 0, artifact: 0`.** `token_counts` hardcoded both, so the
+   line a reader uses to judge how much was thrown away said nothing was. Neither is computable where
+   it was written: the masked count belongs to the pipeline, and the artifact's own size is the size of
+   the text being rendered. Both now come from the caller, and `markdown` measures a first pass so the
+   header can state its own size — the two passes differ by one token, far below the estimate's
+   precision.
+2. **`git check-ignore` printed git's errors at the user.** Added hours earlier with
+   `Command::status`, which hands the child the parent's stderr, so writing an artifact outside a
+   repository produced `fatal: not a git repository` — from a check whose normal answer is exactly
+   that.
+
+Also observed, not yet acted on: `cli:` LLM backends leave a real session in the user's store for
+every call (five were visible in `~/.claude/projects`, identifiable by their `sctxx-llm-<pid>-<n>`
+temp cwd), because using the user's login requires using the user's config directory. They pollute
+`sctxx list`. Excluding them from discovery is the obvious fix and needs its own decision.
+
 ## 2026-09-11 - The working tree moves to the normal checkout; artifacts stop being committable
 
 Commits: `c03e4b5328f63aa1c979dc8d2a6c728fa07260d0`, `684382cad54a656a861c60f6154e7918f7e6a18c`

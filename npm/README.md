@@ -50,6 +50,28 @@ tarballs with the workflow's OIDC identity — npm shows the attesting commit.
 
 The job needs one secret, `NPM_TOKEN`, from an account with publish rights on all seven names.
 
+Both publish jobs are idempotent: each skips a version that already exists. That is what lets a new
+channel be added for an already-tagged version, and what makes a partially-failed release safe to
+re-dispatch.
+
+### 0.1.0: one package missing, and where provenance is absent
+
+The first release published six of the seven names. `sctxx-win32-arm64` was refused with
+`403 Package name triggered spam detection` — npm's heuristic for a new account publishing a burst of
+similarly-named packages. The other five went up, re-tried one at a time.
+
+Two consequences worth knowing before the next release:
+
+- **`sctxx-win32-arm64` does not exist yet.** Windows on ARM is the one platform whose install falls
+  back to the shim's message (`npm install -g sctxx --include=optional`, then `cargo install sctxx`).
+  Re-dispatching the release retries it, because the job skips what is already published. If npm
+  keeps refusing, the options are to wait and retry, to ask npm support, or to rename that one
+  package — the name, not the mechanism, is what is being refused.
+- **Provenance is inconsistent in 0.1.0.** Four platform packages were published by CI with signed
+  provenance; the wrapper and `sctxx-win32-x64` were published by hand after the spam block and have
+  none. npm versions are immutable, so that cannot be fixed retroactively — every version from here
+  on is published by CI and fully attested.
+
 ## Deviation from the spec
 
 §14.3 of `docs/SCTXX-SPEC.md` proposed scoped packages (`@sctxx/cli-linux-x64`). npm scopes require
