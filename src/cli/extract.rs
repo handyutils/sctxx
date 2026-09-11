@@ -17,7 +17,11 @@ pub struct ExtractArgs {
     reference: String,
 
     /// How much of the pipeline to run: fast, standard, or full.
-    #[arg(long, default_value = "standard", value_parser = ["fast", "standard", "full"])]
+    ///
+    /// `fast` folds one tier-budgeted digest of the whole session in a single
+    /// call. `standard` folds every chunk in sequence, which on a long session is
+    /// hours. `full` is roadmap M5.
+    #[arg(long, default_value = "fast", value_parser = ["fast", "standard", "full"])]
     mode: String,
 
     /// Backend: none, auto, cli:<agent>, api:<provider>[/<model>], or mock.
@@ -43,6 +47,16 @@ pub struct ExtractArgs {
     /// Tokens reserved for the fold model's answer.
     #[arg(long, default_value_t = 4_000)]
     max_completion: usize,
+
+    /// How long one `cli:` completion may take, in seconds. A fold call over a
+    /// long session can exceed the 600s default, and when it does the whole
+    /// chunk is discarded.
+    #[arg(long, default_value_t = 600)]
+    llm_timeout: u64,
+
+    /// Token budget for the `fast` digest.
+    #[arg(long, default_value_t = 60_000)]
+    digest_tokens: usize,
 
     /// Recency tail token budget.
     #[arg(long, default_value_t = 12_000)]
@@ -190,6 +204,9 @@ impl ExtractArgs {
             budget: self.budget,
             model_context: self.model_context,
             max_completion: self.max_completion,
+            digest_tokens: self.digest_tokens,
+            llm_timeout_secs: self.llm_timeout,
+            no_fold: false,
             tail_tokens: self.tail,
             chunk_tokens: self.chunk_tokens,
             focus: self.focus.clone(),
@@ -322,9 +339,11 @@ fn dry_run(
     options: &ExtractOptions,
     global: &GlobalArgs,
 ) -> Result<i32> {
+    // Plan the run the caller asked for — same backend, same mode, same digest —
+    // and simply do not execute the model calls.
     let plan_only = ExtractOptions {
-        llm: Selection::None,
         verify: false,
+        no_fold: true,
         ..options.clone()
     };
     let extraction = pipeline::extract(summary, &plan_only, &mut |_, _| {})?;
@@ -344,7 +363,8 @@ fn dry_run(
     } else {
         0
     };
-    let premap = if will_fold && plan.chunks.len() > 4 {
+    // `fast` never premaps; the pipeline decides this the same way.
+    let premap = if will_fold && options.mode != Mode::Fast && plan.chunks.len() > 4 {
         plan.chunks.len()
     } else {
         0
@@ -356,7 +376,8 @@ fn dry_run(
         "events": extraction.session.events.len(),
         "active_events": extraction.session.active.len(),
         "user_turns": extraction.session.user_turns(),
-        "masked_rows": extraction.rows.len(),
+        "masked_rows": extraction.report.masked_rows,
+        "rows_to_fold": extraction.rows.len(),
         "masked_tokens": extraction.report.tokens.masked,
         "episodes": plan.episodes.len(),
         "chunks": plan.chunks.len(),
@@ -364,6 +385,8 @@ fn dry_run(
         "tail_rows": plan.tail.len(),
         "tail_tokens": extraction.report.tokens.tail,
         "llm": backend,
+        "mode": options.mode.label(),
+        "digest_tokens": options.digest_tokens,
         "planned_fold_calls": calls,
         "planned_premap_calls": premap,
         "estimated_prompt_tokens": if will_fold {
@@ -378,21 +401,24 @@ fn dry_run(
     } else {
         out(&format!(
             "session:        {}\npath:           {}\nevents:         {} ({} active, {} user turns)\n\
-             masked rows:    {} ({} tokens)\nepisodes:       {}\nchunks to fold: {} ({} tokens)\n\
-             recency tail:   {} rows ({} tokens)\nbackend:        {}\nplanned calls:  {} fold + {} premap\n",
+             masked rows:    {} ({} tokens)\nrows to fold:   {} (digest budget {})\nepisodes:       {}\nchunks to fold: {} ({} tokens)\n\
+             recency tail:   {} rows ({} tokens)\nbackend:        {}\nmode:           {}\nplanned calls:  {} fold + {} premap\n",
             summary.reference(),
             summary.path.display(),
             extraction.session.events.len(),
             extraction.session.active.len(),
             extraction.session.user_turns(),
-            extraction.rows.len(),
+            extraction.report.masked_rows,
             extraction.report.tokens.masked,
+            extraction.rows.len(),
+            options.digest_tokens,
             plan.episodes.len(),
             plan.chunks.len(),
             plan.chunk_tokens(),
             plan.tail.len(),
             extraction.report.tokens.tail,
             backend,
+            options.mode.label(),
             calls,
             premap,
         ));

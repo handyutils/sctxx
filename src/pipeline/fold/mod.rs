@@ -15,7 +15,7 @@ pub mod validate;
 use crate::error::Result;
 use crate::ir::Session;
 use crate::llm::{Backend, CallRole, Request};
-use crate::pipeline::ledgers::Ledgers;
+use crate::pipeline::ledgers::{CommandRecord, ErrorRecord, ErrorStatus, FileRecord, Ledgers};
 use crate::pipeline::mask::Row;
 use crate::pipeline::segment::Plan;
 use crate::vendor::codex::secrets::RedactMode;
@@ -641,14 +641,33 @@ fn visible_events(rows: &[Row]) -> Vec<u32> {
 }
 
 /// The deterministic facts for one chunk's event range.
-fn ledger_slice(ledgers: &Ledgers, range: EvtRange) -> String {
-    let mut out = String::new();
+/// Tokens the deterministic ledger slice may spend in one prompt.
+///
+/// The per-chunk slice is exhaustive on purpose: a 24k-token chunk wants every
+/// file and command inside its own range. A chunk that spans the *whole* session
+/// turns that into the whole ledger, and on a 103,757-event session that is
+/// 363,066 tokens of files, commands and errors sitting inside a prompt whose
+/// transcript is only 52,964. The cap is what keeps `--mode fast` from being
+/// slower than the mode it replaced.
+pub const LEDGER_BUDGET: usize = 12_000;
 
-    let files: Vec<String> = ledgers
+/// One ledger line's own limit, so a single pasted stack trace cannot spend the
+/// whole slice.
+const LEDGER_ITEM_TOKENS: usize = 200;
+
+fn ledger_slice(ledgers: &Ledgers, range: EvtRange) -> String {
+    // Ranked before it is capped, because a cap on an unranked list keeps
+    // whichever entries happened to be first in the ledger.
+    let mut files: Vec<(&FileRecord, u32)> = ledgers
         .files
         .iter()
         .filter(|file| file.last_evt >= range.start && file.first_evt <= range.end)
-        .map(|file| {
+        .map(|file| (file, file.edits + file.reads))
+        .collect();
+    files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.path.cmp(&b.0.path)));
+    let files: Vec<String> = files
+        .into_iter()
+        .map(|(file, _)| {
             let mut label = file.path.clone();
             if file.edits > 0 {
                 label.push_str(&format!(" (edit×{})", file.edits));
@@ -661,14 +680,15 @@ fn ledger_slice(ledgers: &Ledgers, range: EvtRange) -> String {
             label
         })
         .collect();
-    if !files.is_empty() {
-        out.push_str(&format!("Files touched: {}\n", files.join(", ")));
-    }
 
-    let commands: Vec<String> = ledgers
+    let mut commands: Vec<&CommandRecord> = ledgers
         .commands
         .iter()
         .filter(|command| range.contains(command.evt))
+        .collect();
+    commands.sort_by_key(|command| std::cmp::Reverse(command.evt));
+    let commands: Vec<String> = commands
+        .into_iter()
         .map(|command| {
             format!(
                 "`{}` → {} [evt {}]",
@@ -678,26 +698,29 @@ fn ledger_slice(ledgers: &Ledgers, range: EvtRange) -> String {
             )
         })
         .collect();
-    if !commands.is_empty() {
-        out.push_str(&format!("Commands: {}\n", commands.join("; ")));
-    }
 
-    let errors: Vec<String> = ledgers
+    let mut errors: Vec<&ErrorRecord> = ledgers
         .errors
         .iter()
         .filter(|error| error.last_evt >= range.start && error.first_evt <= range.end)
+        .collect();
+    errors.sort_by(|a, b| {
+        (a.status != ErrorStatus::Unresolved)
+            .cmp(&(b.status != ErrorStatus::Unresolved))
+            .then_with(|| b.occurrences.cmp(&a.occurrences))
+            .then_with(|| a.sig.cmp(&b.sig))
+    });
+    let errors: Vec<String> = errors
+        .into_iter()
         .map(|error| {
             format!(
                 "{} ×{} — {}",
                 error.sig,
                 error.occurrences,
-                error.example.lines().next().unwrap_or("").trim()
+                one_line(error.example.lines().next().unwrap_or(""))
             )
         })
         .collect();
-    if !errors.is_empty() {
-        out.push_str(&format!("Error signatures: {}\n", errors.join("; ")));
-    }
 
     let dead_ends: Vec<String> = ledgers
         .dead_end_candidates()
@@ -705,18 +728,56 @@ fn ledger_slice(ledgers: &Ledgers, range: EvtRange) -> String {
         .filter(|error| error.last_evt >= range.start && error.first_evt <= range.end)
         .map(|error| format!("{} (×{}, still unresolved)", error.sig, error.occurrences))
         .collect();
-    if !dead_ends.is_empty() {
-        out.push_str(&format!(
-            "Repeatedly unresolved (dead-end candidates): {}\n",
-            dead_ends.join("; ")
-        ));
-    }
+
+    let mut out = String::new();
+    let mut remaining = LEDGER_BUDGET;
+    emit_ledger(&mut out, &mut remaining, "Files touched", &files);
+    emit_ledger(&mut out, &mut remaining, "Commands", &commands);
+    emit_ledger(&mut out, &mut remaining, "Error signatures", &errors);
+    emit_ledger(
+        &mut out,
+        &mut remaining,
+        "Repeatedly unresolved (dead-end candidates)",
+        &dead_ends,
+    );
 
     if out.is_empty() {
         "(nothing recorded for this range)".to_string()
     } else {
         out
     }
+}
+
+/// Emit one ledger section under a shared budget, saying what it left out.
+///
+/// The first entry is always kept, so a section is never rendered as empty while
+/// entries exist — an empty "Error signatures" line reads as "there were none",
+/// which is the one thing it must never mean.
+fn emit_ledger(out: &mut String, remaining: &mut usize, label: &str, items: &[String]) {
+    if items.is_empty() {
+        return;
+    }
+    let mut kept: Vec<String> = Vec::new();
+    for item in items {
+        let item = crate::vendor::codex::truncate::truncate_middle_tokens(item, LEDGER_ITEM_TOKENS);
+        let cost = approx_tokens(&item) + 2;
+        if cost > *remaining && !kept.is_empty() {
+            break;
+        }
+        *remaining = remaining.saturating_sub(cost);
+        kept.push(item);
+    }
+    let dropped = items.len() - kept.len();
+    out.push_str(&format!("{label}: {}", kept.join("; ")));
+    if dropped > 0 {
+        out.push_str(&format!(" … and {dropped} more"));
+    }
+    out.push('\n');
+}
+
+/// The first line of a block of output, collapsed.
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
 /// The last-known deterministic state, for the final pass.

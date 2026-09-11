@@ -481,7 +481,9 @@ mod tests {
                 "full".to_string()
             ])
         );
-        assert_eq!(form.get("mode"), Some("standard"));
+        // `fast` is the default: folding every chunk in sequence is hours on a
+        // real session, so `standard` is the deliberate choice, not the default.
+        assert_eq!(form.get("mode"), Some("fast"));
 
         let index = form
             .fields()
@@ -489,6 +491,8 @@ mod tests {
             .position(|field| field.id == "mode")
             .expect("index");
         form.move_focus(index as isize);
+        form.step(1);
+        assert_eq!(form.get("mode"), Some("standard"));
         form.step(1);
         assert_eq!(form.get("mode"), Some("full"));
         form.step(1);

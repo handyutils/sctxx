@@ -35,8 +35,39 @@ bump and a compatibility note.
   and which knob to turn — instead of failing once per chunk for two hours.
 - The README and `docs/research/` state which published work each mechanism comes from, with links.
 
+### Changed
+
+- **`--mode fast` is now the default, and `fast` now means one call.** It previously skipped premap
+  but still folded all 40 chunks in sequence, which on a real 103,757-event session is 807,372
+  tokens across 81 model calls — hours against a CLI backend, and not a product. `fast` now folds a
+  single tier-budgeted digest: Codex's tier order (`vendor/codex/tiered_input.rs`) applied to sctxx's
+  masked rows, newest first within each tier, rows kept whole or not at all, then re-rendered in
+  source order. On that session the digest fixes the plan at **2 calls instead of 81** and
+  **49,479 tokens instead of 807,372** — the human turns, the failures, the plan and the final
+  answers, and nothing that is only tool noise. `--mode standard` keeps the exhaustive sequential
+  fold for when it is wanted; `--digest-tokens` sets the budget.
+- **The deterministic ledger slice is capped and ranked.** It was exhaustive per chunk, which is
+  right for a 24k-token chunk and catastrophic for one that spans the session: on a real session it
+  emitted 363,066 tokens of files, commands and errors into a prompt whose transcript was 52,964.
+  Files now rank by edit and read count, commands by recency, errors with unresolved first, and each
+  section says what it left out. A section is never rendered empty while entries exist — an empty
+  "Error signatures" line reads as "there were none", which is the one thing it must never mean.
+- `--llm-timeout <secs>` for `cli:` backends. The 600 s default is not enough for a fold call over a
+  long session: both a 53k-token and a 25k-token chunk call were killed at exactly that mark while
+  the tail pass finished in ~30 s, and the chunk's work is discarded when it happens.
+- `--dry-run` now plans the run you actually asked for. It used to force `llm: none` to avoid making
+  a call, which also changed the plan, so it described a different and slower run than the one it
+  was predicting — it reported `41 fold + 40 premap` for a `fast` run that would make two calls.
+  It also prints the mode, the digest row count, and the digest budget.
+
 ### Fixed
 
+- **A partial fold reported itself as complete.** `classify_semantic` returned `ok` whenever at least
+  one call succeeded and at least one op was accepted, so the run above — one chunk call killed at
+  600 s having produced nothing, one tail pass producing four items — described itself as an ordinary
+  complete semantic pass. Any failed call now reports `degraded`, and the notice states the count
+  (`1 of 2 model call(s) failed`) because a partial pass is otherwise indistinguishable from a
+  complete one to the person reading it.
 - **L0 could drop the whole Hard-constraints block silently.** The budget helper returns early when a
   block does not fit, which discarded all 40 constraints in one piece with no marker, making a run
   that found them indistinguishable from one that did not. The mandatory blocks — the notice that no

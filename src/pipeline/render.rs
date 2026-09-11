@@ -100,6 +100,10 @@ pub struct RenderOptions {
     pub triage: Option<crate::pipeline::triage::Triage>,
     /// What became of each of those constraints between extraction and here.
     pub guard: crate::pipeline::triage::GuardReport,
+    /// How the fold went, so the notice can say *how much* is missing. A partial
+    /// pass reads exactly like a complete one otherwise.
+    pub fold_calls: usize,
+    pub fold_failed_calls: usize,
 }
 
 impl Default for RenderOptions {
@@ -115,6 +119,8 @@ impl Default for RenderOptions {
             masked_tokens: 0,
             triage: None,
             guard: crate::pipeline::triage::GuardReport::default(),
+            fold_calls: 0,
+            fold_failed_calls: 0,
             artifact_tokens: 0,
         }
     }
@@ -307,7 +313,10 @@ fn render_brief(artifact: &Artifact<'_>) -> String {
 
     // Before any content, because a reader who acts on an empty state as though
     // it were a full one is worse off than one who was told.
-    if let Some(notice) = artifact.options.semantic.notice() {
+    if let Some(notice) = artifact.options.semantic.notice(
+        artifact.options.fold_failed_calls,
+        artifact.options.fold_calls,
+    ) {
         let mut block = String::new();
         for line in notice.lines() {
             block.push_str(&format!("> {line}\n"));

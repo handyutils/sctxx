@@ -6,7 +6,7 @@ expression: stable(&markdown)
 schema: sctxx.handoff/v1
 sctxx: <version>
 source: <normalized>
-mode: standard
+mode: fast
 llm: none
 semantic: not_requested
 triage: {constraints: 1, preserved: 1, restored: 0, missing: 0, messages: 2, above_cap: 0}

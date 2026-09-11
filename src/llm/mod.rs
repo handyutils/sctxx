@@ -155,16 +155,31 @@ impl std::fmt::Display for Selection {
 /// Returns `Ok(None)` for [`Selection::None`], which is not an error: the
 /// deterministic artifact is a supported product, not a degraded one.
 pub fn build(selection: &Selection) -> Result<Option<Box<dyn Backend>>> {
+    build_with_timeout(selection, cli::DEFAULT_TIMEOUT_SECS)
+}
+
+/// As [`build`], with an explicit timeout for the subprocess backends.
+///
+/// Only the `cli:` backends take it. `cli:codex` was measured killing a real
+/// fold call at 600s and discarding the whole chunk, so it has to be adjustable
+/// without editing the source.
+pub fn build_with_timeout(
+    selection: &Selection,
+    timeout_secs: u64,
+) -> Result<Option<Box<dyn Backend>>> {
+    let timeout = std::time::Duration::from_secs(timeout_secs.max(1));
     match selection {
         Selection::None => Ok(None),
         Selection::Mock => Ok(Some(Box::new(mock::Mock::deterministic()))),
-        Selection::Cli(name) => Ok(Some(Box::new(cli::CliBackend::new(name)?))),
+        Selection::Cli(name) => Ok(Some(Box::new(cli::CliBackend::with_timeout(
+            name, timeout,
+        )?))),
         Selection::Api { provider, model } => Ok(Some(Box::new(api::ApiBackend::new(
             provider,
             model.clone(),
         )?))),
         Selection::Auto => match resolve_auto() {
-            Some(resolved) => build(&resolved),
+            Some(resolved) => build_with_timeout(&resolved, timeout_secs),
             None => Ok(None),
         },
     }

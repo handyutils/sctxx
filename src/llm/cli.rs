@@ -21,8 +21,15 @@ use std::time::Duration;
 /// Which agent CLIs `auto` will try, in order (spec §9.6).
 pub const PREFERENCE_ORDER: &[&str] = &["claude", "codex", "pi"];
 
-/// How long one completion may take before the child is killed.
-const TIMEOUT: Duration = Duration::from_secs(600);
+/// How long one completion may take before the child is killed, unless the
+/// caller says otherwise.
+///
+/// A fold call over a long session is a large prompt asking for a large
+/// structured answer, and 600s is not enough for it: on a real 103,757-event
+/// session both a 53k-token and a 25k-token chunk call were killed at exactly
+/// this mark while the much smaller tail pass finished in about thirty seconds.
+/// The work is discarded when that happens, so the caller can raise it.
+pub const DEFAULT_TIMEOUT_SECS: u64 = 600;
 
 /// How to invoke one agent CLI as a completion engine.
 ///
@@ -103,11 +110,18 @@ const TEMPLATES: &[Template] = &[
 pub struct CliBackend {
     template: &'static Template,
     program: PathBuf,
+    timeout: Duration,
 }
 
 impl CliBackend {
-    /// Look up `name` in the template table and on `PATH`.
+    /// Look up `name` in the template table and on `PATH`, with the default
+    /// timeout.
     pub fn new(name: &str) -> Result<Self> {
+        Self::with_timeout(name, Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+    }
+
+    /// As [`CliBackend::new`], with an explicit completion timeout.
+    pub fn with_timeout(name: &str, timeout: Duration) -> Result<Self> {
         let template = TEMPLATES
             .iter()
             .find(|template| template.name == name)
@@ -120,7 +134,11 @@ impl CliBackend {
         let program = find_executable(template.program).ok_or_else(|| {
             Error::LlmUnavailable(format!("`{}` is not on PATH", template.program))
         })?;
-        Ok(Self { template, program })
+        Ok(Self {
+            template,
+            program,
+            timeout,
+        })
     }
 }
 
@@ -166,7 +184,8 @@ impl Backend for CliBackend {
         // Closing stdin is what tells a one-shot CLI to start work.
         drop(child.stdin.take());
 
-        let output = wait_with_timeout(child, TIMEOUT).map_err(|message| Error::LlmFailed {
+        let timeout = self.timeout;
+        let output = wait_with_timeout(child, timeout).map_err(|message| Error::LlmFailed {
             backend: self.name(),
             message,
         })?;

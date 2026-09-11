@@ -533,6 +533,9 @@ fn a_backend_that_fails_still_yields_the_deterministic_artifact() {
 fn many_chunk_options() -> ExtractOptions {
     ExtractOptions {
         llm: Selection::Mock,
+        // The point of this fixture is many chunks, which is a `standard`-mode
+        // property now that `fast` folds one digest.
+        mode: Mode::Standard,
         chunk_tokens: 25,
         tail_tokens: 25,
         ..deterministic_options()
@@ -540,15 +543,26 @@ fn many_chunk_options() -> ExtractOptions {
 }
 
 #[test]
-fn fast_mode_skips_the_premap_pass() {
+fn fast_mode_folds_one_digest_and_skips_premap() {
+    // `many_chunk_options` asks for many chunks; `fast` ignores the chunking and
+    // folds a single tier-budgeted digest of the session instead. That is the
+    // whole point of it: folding every chunk in sequence is hours on a real
+    // session, and hours is not a product.
     let options = ExtractOptions {
         mode: Mode::Fast,
+        digest_tokens: 100,
         ..many_chunk_options()
     };
     let extraction = extract("claude/basic.jsonl", &options);
     assert!(
-        extraction.report.chunks > 4,
-        "only {} chunks",
+        extraction.report.rows < extraction.report.masked_rows,
+        "the digest kept every row: {} of {}",
+        extraction.report.rows,
+        extraction.report.masked_rows
+    );
+    assert!(
+        extraction.report.chunks <= 1,
+        "fast folded {} chunks",
         extraction.report.chunks
     );
     assert_eq!(extraction.report.premap_calls, 0);

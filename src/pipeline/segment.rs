@@ -6,6 +6,7 @@
 //! held back as the near-verbatim recency tail rather than folded.
 
 use super::mask::Row;
+use crate::vendor::codex::tiered_input::Tier;
 
 /// A run of rows that belong to one intent.
 #[derive(Debug, Clone)]
@@ -68,6 +69,80 @@ impl Default for SegmentOptions {
             tail_tokens: 12_000,
             min_episode_tokens: 1_500,
         }
+    }
+}
+
+/// Keep the highest-signal rows under a token budget, in source order.
+///
+/// Codex's tier order, applied to sctxx's masked rows: fill each tier newest
+/// first, then keep the result in source order so a reader still sees a
+/// chronology. This is the policy in `vendor/codex/tiered_input.rs`, expressed
+/// on rows rather than on rendered text — the fold needs the event indices to
+/// validate provenance against, and a rendered string has thrown them away.
+///
+/// Rows are kept whole or not at all. A digest that spends its budget on the
+/// middle of a tool output has spent it on nothing, and a half-quoted command is
+/// exactly the kind of evidence that must never appear in an artifact.
+///
+/// The point is the call count. Folding the whole masked transcript of a
+/// 103,757-event session is 807,372 tokens across 40 sequential model calls; the
+/// same session's human turns, failures, plans and final answers fit in a
+/// digest of one. Neither is free, but only one of them finishes.
+pub fn digest(rows: &[Row], tokens: usize) -> Vec<Row> {
+    let mut keep = vec![false; rows.len()];
+    let mut remaining = tokens;
+    for tier in Tier::ALL {
+        // Newest first within the tier, so a budget that cannot hold everything
+        // holds the most recent thing that mattered.
+        for (index, row) in rows.iter().enumerate().rev() {
+            if row.tier != tier || keep[index] || row.tokens > remaining {
+                continue;
+            }
+            keep[index] = true;
+            remaining -= row.tokens;
+        }
+    }
+    rows.iter()
+        .zip(keep)
+        .filter(|(_, keep)| *keep)
+        .map(|(row, _)| row.clone())
+        .collect()
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::*;
+
+    fn row(evt: u32, tier: Tier, tokens: usize) -> Row {
+        Row {
+            evt,
+            tier,
+            text: format!("row {evt}"),
+            tokens,
+            is_human_turn: tier == Tier::User,
+        }
+    }
+
+    #[test]
+    fn a_digest_keeps_the_highest_tier_first_and_stays_in_source_order() {
+        // One user turn, one failure, and a pile of successful tool output that
+        // would otherwise eat the whole budget.
+        let mut rows = vec![row(1, Tier::User, 10), row(2, Tier::ToolResultError, 10)];
+        for evt in 3..40 {
+            rows.push(row(evt, Tier::ToolResultOk, 100));
+        }
+        let digest = digest(&rows, 30);
+        assert_eq!(digest.len(), 2, "{digest:?}");
+        assert_eq!(digest[0].evt, 1);
+        assert_eq!(digest[1].evt, 2, "source order, not tier order");
+        assert!(digest.iter().map(|row| row.tokens).sum::<usize>() <= 30);
+    }
+
+    #[test]
+    fn a_row_is_kept_whole_or_not_at_all() {
+        let rows = vec![row(1, Tier::User, 100)];
+        assert!(digest(&rows, 99).is_empty());
+        assert_eq!(digest(&rows, 100).len(), 1);
     }
 }
 

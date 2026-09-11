@@ -37,7 +37,14 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Mode {
-    /// One pass, tier-budgeted; no premap.
+    /// One pass over a tier-budgeted digest of the whole session; no premap.
+    ///
+    /// This is the default when a model is used, because the alternative does
+    /// not finish. Folding a real 103,757-event session chunk by chunk is
+    /// 807,372 tokens across 40 sequential calls plus 40 premap calls; against a
+    /// CLI backend that is hours. `fast` spends the same budget on the rows that
+    /// carry the session's meaning — the human turns, the failures, the plan,
+    /// the final answers — and asks once.
     Fast,
     /// Premap when it pays for itself, then the sequential fold.
     Standard,
@@ -76,6 +83,16 @@ pub struct ExtractOptions {
     pub model_context: Option<usize>,
     /// Tokens reserved for the model's answer.
     pub max_completion: usize,
+    /// Token budget for the `fast` digest (spec §7.3).
+    pub digest_tokens: usize,
+    /// How long one subprocess completion may take, in seconds.
+    pub llm_timeout_secs: u64,
+    /// Plan the run without making it. The backend is still resolved, so the plan
+    /// describes the run the caller asked for; the fold is simply not executed.
+    /// `--dry-run` needs this: forcing `llm: none` to avoid a call also changes
+    /// the plan, which made the dry run describe a different, slower run than the
+    /// one it was predicting.
+    pub no_fold: bool,
     pub tail_tokens: usize,
     pub chunk_tokens: usize,
     pub focus: Option<String>,
@@ -95,11 +112,14 @@ pub struct ExtractOptions {
 impl Default for ExtractOptions {
     fn default() -> Self {
         Self {
-            mode: Mode::Standard,
+            mode: Mode::Fast,
             llm: Selection::Auto,
             budget: 8_000,
             model_context: None,
             max_completion: fold::DEFAULT_MAX_COMPLETION,
+            digest_tokens: 60_000,
+            llm_timeout_secs: crate::llm::cli::DEFAULT_TIMEOUT_SECS,
+            no_fold: false,
             tail_tokens: 12_000,
             chunk_tokens: 24_000,
             focus: None,
@@ -130,7 +150,12 @@ pub struct Report {
     pub active_events: usize,
     pub user_turns: usize,
     pub kind_counts: std::collections::BTreeMap<&'static str, usize>,
+    /// Rows the artifact was built from, i.e. after any `fast` digest.
     pub rows: usize,
+    /// Rows the mask produced before the digest. Equal to `rows` unless `fast`
+    /// dropped tool noise, and reported separately because "513 rows" next to
+    /// "813,032 tokens" reads like a bug rather than a decision.
+    pub masked_rows: usize,
     pub episodes: usize,
     pub chunks: usize,
     pub tail_rows: usize,
@@ -179,6 +204,14 @@ pub fn classify_semantic(report: &fold::FoldReport) -> SemanticState {
         // a different thing to tell the reader.
         return SemanticState::Degraded;
     }
+    if report.failed_calls > 0 {
+        // Some calls succeeded and some did not, so the state is real but partial.
+        // This used to report `ok`: on a real session one chunk call timed out
+        // after 600s and produced nothing, the remaining call produced three
+        // items, and the artifact described itself as a complete semantic pass.
+        // A reader cannot see the difference, which is the whole problem.
+        return SemanticState::Degraded;
+    }
     SemanticState::Ok
 }
 
@@ -225,7 +258,7 @@ impl SemanticState {
     }
 
     /// What a reader of the artifact must be told, when it is not `Ok`.
-    pub fn notice(self) -> Option<&'static str> {
+    pub fn notice(self, failed_calls: usize, calls: usize) -> Option<String> {
         match self {
             // Said in L0, not only in the header. A reader who does not know the
             // semantic layer is absent will read a transcript digest as though it
@@ -236,19 +269,31 @@ impl SemanticState {
                  current step, and only the standing instructions a pattern could find — a rule \
                  stated declaratively is absent rather than absent-minded. What follows is evidence \
                  rather than understanding. For the semantic layer: `sctxx extract <ref> --llm \
-                 cli:<agent>`.",
+                 cli:<agent>`."
+                    .to_string(),
             ),
             SemanticState::Ok => None,
-            SemanticState::Degraded => Some(
+            SemanticState::Degraded => Some(if failed_calls > 0 {
+                // A partial pass reads exactly like a complete one, so the count
+                // is the only thing that distinguishes them.
+                format!(
+                    "The model-written state is PARTIAL: {failed_calls} of {calls} model call(s) \
+                     failed, so whole parts of the session were never looked at. What is here is \
+                     real, and what is missing is not marked. Read the ledgers and the recency \
+                     tail for the rest, and verify against the repository before acting."
+                )
+            } else {
                 "The model-written state is EMPTY. The fold ran and produced no items, so the \
                  sections it would fill are absent rather than empty. Read the ledgers and the \
-                 recency tail, and verify against the repository before acting.",
-            ),
+                 recency tail, and verify against the repository before acting."
+                    .to_string()
+            }),
             SemanticState::Unavailable => Some(
                 "The model-written state is UNAVAILABLE: every model call failed. What follows \
                  is the deterministic artifact — ledgers, pointers and the recency tail — which \
                  is complete for following the evidence, but nothing here was summarised by a \
-                 model. Read the tail before acting.",
+                 model. Read the tail before acting."
+                    .to_string(),
             ),
         }
     }
@@ -321,6 +366,8 @@ impl Extraction {
             // The artifact says whether the model-written layer is there, so a
             // reader never has to infer it from absent sections.
             semantic: self.report.semantic_state,
+            fold_calls: self.report.fold_calls,
+            fold_failed_calls: self.report.fold_failed_calls,
             triage: Some(self.triage.clone()),
             guard: self.guard.clone(),
             redact: options.redact,
@@ -535,8 +582,32 @@ pub fn extract_interruptible(
     };
     let rows = mask::build(&session, &mask_options);
     let masked_tokens: usize = rows.iter().map(|row| row.tokens).sum();
+    let masked_rows = rows.len();
+    // `fast` folds a digest of the whole session rather than every chunk of it.
+    // Only when a model is going to read it: `--llm none` produces the complete
+    // deterministic artifact and the rows it renders in L2 are the real ones.
+    let digesting = options.mode == Mode::Fast && !matches!(options.llm, Selection::None);
+    let mut rows = rows;
+    if digesting {
+        let before = rows.len();
+        rows = segment::digest(&rows, options.digest_tokens);
+        progress(
+            "digest",
+            &format!(
+                "{} of {} masked rows under {} tokens: the human turns, the failures, the plan \
+                 and the final answers, and nothing that is only tool noise",
+                rows.len(),
+                before,
+                options.digest_tokens
+            ),
+        );
+    }
     let segment_options = segment::SegmentOptions {
-        chunk_tokens: options.chunk_tokens,
+        chunk_tokens: if digesting {
+            options.digest_tokens
+        } else {
+            options.chunk_tokens
+        },
         tail_tokens: options.tail_tokens,
         ..Default::default()
     };
@@ -556,7 +627,11 @@ pub fn extract_interruptible(
     let mut state = fold::state::FoldState::new();
     triage::seed(&mut state, &triage);
     let mut fold_report = fold::FoldReport::default();
-    let backend = crate::llm::build(&options.llm)?;
+    let backend = if options.no_fold {
+        None
+    } else {
+        crate::llm::build_with_timeout(&options.llm, options.llm_timeout_secs)?
+    };
     let llm_label = match &backend {
         Some(backend) => backend.name(),
         None => "none".to_string(),
@@ -582,6 +657,8 @@ pub fn extract_interruptible(
                 cancel: cancel.clone(),
                 focus: options.focus.clone(),
                 // `fast` never premaps; the point of fast is one pass.
+                // `fast` is one pass. Premap exists to give each of many chunks
+                // an isolated read; a digest has nothing to isolate it from.
                 premap_threshold: if options.mode == Mode::Fast {
                     usize::MAX
                 } else {
@@ -728,6 +805,7 @@ pub fn extract_interruptible(
         user_turns: session.user_turns(),
         kind_counts: session.kind_counts(),
         rows: rows.len(),
+        masked_rows,
         episodes: plan.episodes.len(),
         chunks: plan.chunks.len(),
         tail_rows,
@@ -945,12 +1023,19 @@ mod semantic_tests {
             classify_semantic(&report(41, 0, 0)),
             SemanticState::Degraded
         );
-        // Some failures are ordinary and are not degradation.
+        // Three failed calls out of forty-one is still three chunks of the
+        // session that nobody read, and the artifact cannot show a reader which
+        // three. The count is in the notice so they can judge for themselves;
+        // whether it was "ordinary" is not something this function can know.
         assert_eq!(
             classify_semantic(&report(41, 3, 0)),
             SemanticState::Degraded
         );
-        assert_eq!(classify_semantic(&report(41, 3, 12)), SemanticState::Ok);
+        assert_eq!(
+            classify_semantic(&report(41, 3, 12)),
+            SemanticState::Degraded
+        );
+        assert_eq!(classify_semantic(&report(41, 0, 12)), SemanticState::Ok);
     }
 
     #[test]
@@ -964,13 +1049,13 @@ mod semantic_tests {
     #[test]
     fn each_state_says_something_a_reader_can_act_on() {
         assert_eq!(SemanticState::Ok.label(), "ok");
-        assert!(SemanticState::Ok.notice().is_none());
+        assert!(SemanticState::Ok.notice(0, 3).is_none());
         // The deterministic path says what it is missing. A reader who does not
         // know the semantic layer is absent reads a transcript digest as though
         // it were a handoff — which is what happened, and why this is no longer
         // left to the front matter alone.
         let quiet = SemanticState::NotRequested
-            .notice()
+            .notice(0, 0)
             .expect("the cheap artifact says so");
         assert!(quiet.contains("No model ran"), "{quiet}");
         assert!(
@@ -978,12 +1063,22 @@ mod semantic_tests {
             "and how to get the other one: {quiet}"
         );
         for state in [SemanticState::Degraded, SemanticState::Unavailable] {
-            let notice = state.notice().expect("a reader must be told");
+            let notice = state.notice(0, 3).expect("a reader must be told");
             assert!(notice.len() > 80, "{notice}");
             assert!(
                 notice.contains("deterministic") || notice.contains("EMPTY"),
                 "{notice}"
             );
         }
+
+        // A partial pass reads exactly like a complete one, so the count has to
+        // be in the sentence. This is the case that shipped as `semantic: ok`:
+        // one chunk call timed out and produced nothing while the other
+        // succeeded, and nothing in the artifact said so.
+        let partial = SemanticState::Degraded
+            .notice(1, 2)
+            .expect("a reader must be told");
+        assert!(partial.contains("PARTIAL"), "{partial}");
+        assert!(partial.contains("1 of 2"), "{partial}");
     }
 }
